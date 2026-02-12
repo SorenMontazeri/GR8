@@ -1,8 +1,4 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
-
+import { useState } from 'react';
 
 function App() {
   const [clicked, setClicked] = useState(false);
@@ -16,5 +12,3 @@ function App() {
     </button>
   );
 }
-
-export default App

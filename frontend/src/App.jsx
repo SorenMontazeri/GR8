@@ -7,7 +7,7 @@ function App() {
   const [count, setCount] = useState(0)
 
   useEffect(() => {
-    fetch("http://localhost:8000/api/number/alice")
+    fetch("http://localhost:8000/api/info/2")
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();

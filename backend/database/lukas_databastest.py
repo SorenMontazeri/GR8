@@ -1,18 +1,18 @@
 import sqlite3
+def runData():
+    conn = sqlite3.connect("test.db")
+    cur = conn.cursor()
+    cur.execute("PRAGMA foreign_keys = ON;")
 
-conn = sqlite3.connect("test.db")
-cur = conn.cursor()
-cur.execute("PRAGMA foreign_keys = ON;")
-# 3) Skapa tabellen om den inte finns (bra vana)
-cur.execute("""
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  age INTEGER NOT NULL
-);
-""")
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS test (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+    );
+    """)
+    testlist = ["Lukas", "Lisa", "Einar", "Cora"]
+    cur.executemany("INSERT INTO test (name) VALUES (?);", [(name,) for name in testlist])
 
 
-
-conn.commit()
-conn.close()
+    conn.commit()
+    conn.close()

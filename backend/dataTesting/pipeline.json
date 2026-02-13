@@ -1,0 +1,35 @@
+{
+  "event_id": "d580d6e0-fa55-47f7-b23f-82b16f70d507",
+  "track_id": "27bf9451-2d22-4bed-9c7f-a8523755130d",
+  "camera_id": "1",
+  "timestamp": "2026-02-09T03:44:54.382067Z",
+  "snapshot_ref": "image://dd6b2bb7-320c-43be-908b-70650419c70a",
+  "source": "replay",
+  "payload": {
+    "type": "Human",
+    "score": 0.314,
+    "upper_clothing_colors": [
+      { "name": "black", "score": 0.264 },
+      { "name": "blue", "score": 0.114 },
+      { "name": "white", "score": 0.064 },
+      { "name": "gray", "score": 0.060 },
+      { "name": "beige", "score": 0.038 },
+      { "name": "red", "score": 0.034 },
+      { "name": "green", "score": 0.028 },
+      { "name": "yellow", "score": 0.026 }
+    ],
+    "lower_clothing_colors": [
+      { "name": "black", "score": 0.124 },
+      { "name": "blue", "score": 0.072 },
+      { "name": "gray", "score": 0.050 },
+      { "name": "beige", "score": 0.044 },
+      { "name": "white", "score": 0.042 },
+      { "name": "red", "score": 0.030 },
+      { "name": "green", "score": 0.026 }
+    ],
+    "duration": 0.399,
+    "start_time": "2026-02-09T03:44:54.382068Z",
+    "end_time": "2026-02-09T03:44:54.782066Z",
+    "image_id": "dd6b2bb7-320c-43be-908b-70650419c70a"
+  }
+}

@@ -1,77 +1,88 @@
-def transform_event(src: dict, *, default_source: str = "live", embed_snapshot: bool = False) -> dict:
+import json
+import uuid
+from typing import Any, Dict
+
+
+def transform_event(src: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Transformerar kamerahändelse till målformat.
-    - Rensar bort boxar/paths.
-    - Lägger bild som referens (image://{image.id}), eller bäddar in base64 om embed_snapshot=True.
+    Minimal transform function based on your required fields.
+    Adjust as needed.
     """
-    # Hämta basfält
-    event_id = src.get("id")  # kan ersättas med ett nytt UUID om så önskas
-    camera_id = str(src.get("channel_id")) if src.get("channel_id") is not None else None
+    event_id = src.get("id") or str(uuid.uuid4())
+    camera_id = str(src.get("channel_id"))
+    image = src.get("image", {})
+    classes = src.get("classes", [])
+    parts = src.get("parts", [])
 
     # track_id
     track_id = None
-    parts = src.get("parts") or []
-    if parts and isinstance(parts, list):
-        track_id = (parts[0] or {}).get("object_track_id")
+    if parts and "object_track_id" in parts[0]:
+        track_id = parts[0]["object_track_id"]
 
-    # timestamp (använder image.timestamp i första hand)
-    timestamp = None
-    image = src.get("image") or {}
-    if "timestamp" in image and image["timestamp"]:
-        timestamp = image["timestamp"]
-    else:
-        # fallback: end_time eller start_time
-        timestamp = src.get("end_time") or src.get("start_time")
+    # timestamp → image.timestamp first
+    timestamp = (
+        image.get("timestamp")
+        or src.get("end_time")
+        or src.get("start_time")
+    )
 
-    # snapshot_ref vs inbäddning
+    # snapshot_ref (not embedding base64)
     snapshot_ref = None
-    snapshot_base64 = None
-    image_id = image.get("id")
-    if embed_snapshot:
-        snapshot_base64 = image.get("data")  # inte rekommenderat för stora flöden
-    else:
-        if image_id:
-            snapshot_ref = f"image://{image_id}"
+    if "id" in image:
+        snapshot_ref = f"image://{image['id']}"
 
-    # Plocka ut nyttolast (payload), rensa bort boxar och paths
-    # 1) Hantera klasser – om ni vill spara hela listan, kommentera "top_class" och använd classes direkt.
-    classes = src.get("classes") or []
-    top_class = None
-    if classes:
-        c0 = classes[0]
-        top_class = {
-            "type": c0.get("type"),
-            "score": c0.get("score"),
-            "upper_clothing_colors": c0.get("upper_clothing_colors") or [],
-            "lower_clothing_colors": c0.get("lower_clothing_colors") or []
-        }
-
+    # payload (clean)
     payload = {
         "duration": src.get("duration"),
         "start_time": src.get("start_time"),
         "end_time": src.get("end_time"),
-        "image_id": image_id,
+        "image_id": image.get("id"),
     }
 
-    # Lägg till klassinformation
-    if top_class:
-        payload.update(top_class)
-    # Alternativ: spara alla klasser
-    # payload["classes"] = classes
+    # put top class only (optional)
+    if classes:
+        c = classes[0]
+        payload.update({
+            "type": c.get("type"),
+            "score": c.get("score"),
+            "upper_clothing_colors": c.get("upper_clothing_colors", []),
+            "lower_clothing_colors": c.get("lower_clothing_colors", []),
+        })
 
-    # OBS: Lägger inte till image.data, crop_box eller path.
-    # Om ni måste bädda in base64 (inte rekommenderat), lägg det här:
-    if embed_snapshot and snapshot_base64:
-        payload["snapshot_base64"] = snapshot_base64
-
-    # Bygg slutresultat
-    result = {
+    return {
         "event_id": event_id,
         "track_id": track_id,
         "camera_id": camera_id,
         "timestamp": timestamp,
         "snapshot_ref": snapshot_ref,
-        "source": default_source,
-        "payload": payload
+        "source": "live",
+        "payload": payload,
     }
-    return result
+
+
+def main():
+    print("Enter input JSON filename:")
+    input_file = input("> ").strip()
+
+    print("Enter output JSON filename:")
+    output_file = input("> ").strip()
+
+    # Load input JSON
+    with open(input_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Transform (single object OR list)
+    if isinstance(data, list):
+        transformed = [transform_event(ev) for ev in data]
+    else:
+        transformed = transform_event(data)
+
+    # Save output JSON
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(transformed, f, indent=2, ensure_ascii=False)
+
+    print(f"\nDone! Wrote transformed JSON to: {output_file}")
+
+
+if __name__ == "__main__":
+    main()

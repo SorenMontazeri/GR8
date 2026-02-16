@@ -1,20 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
-
+import Search from './components/SearchButton'
 
 function App() {
-  const [clicked, setClicked] = useState(false);
-
   return (
-    <button className="bg-blue-500"
-      onClick={() => setClicked(true)}
-      style={{ color: clicked ? 'green' : 'red' }}
-    >
-      {clicked ? 'Sparat i databasen!' : 'Spara data'}
-    </button>
-  );
+    <div className="App">
+      <h1>GR8</h1>
+      <Search />
+    </div>
+   )
 }
 
 export default App

@@ -1,7 +1,21 @@
 import { useState } from 'react';
 
-function App() {
+function Search() {
   const [clicked, setClicked] = useState(false);
+
+  useEffect(() => {
+    fetch("http://localhost:8000/api/info/2")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(({ number }) => {
+        console.log("number:", number);
+      })
+      .catch((err) => {
+        console.error("fetch failed:", err);
+      });
+  }, []);
 
   return (
     <button className="bg-blue-500"
@@ -12,3 +26,5 @@ function App() {
     </button>
   );
 }
+
+export default Search

@@ -15,7 +15,7 @@ function App() {
       <TextSearch name={name} setName={setName} />
       
       {/* Skicka ner name så knappen vet vad den ska spara */}
-      <SearchButton name={name} />
+      <SearchButton id={name} />
       
       <p className="mt-4 text-gray-500">Du skriver just nu: {name}</p>
     </div>

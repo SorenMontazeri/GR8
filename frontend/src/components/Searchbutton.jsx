@@ -1,30 +1,30 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
-function Search() {
+function SearchButton({ name }) {
   const [clicked, setClicked] = useState(false);
 
-  useEffect(() => {
-    fetch("http://localhost:8000/api/info/2")
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then(({ number }) => {
-        console.log("number:", number);
-      })
-      .catch((err) => {
-        console.error("fetch failed:", err);
-      });
-  }, []);
+  const handleSave = () => {
+    // Här skickar vi 'name' till din backend
+    fetch("http://localhost:8000/api/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: name }) 
+    })
+    .then(res => {
+      if (res.ok) setClicked(true);
+    })
+    .catch(err => console.error("Fel:", err));
+  };
 
   return (
-    <button className="bg-blue-500"
-      onClick={() => setClicked(true)}
-      style={{ color: clicked ? 'green' : 'red' }}
+    <button 
+      className="px-4 py-2 bg-blue-500 text-white rounded shadow"
+      onClick={handleSave}
+      style={{ backgroundColor: clicked ? 'green' : '#3b82f6' }}
     >
       {clicked ? 'Sparat i databasen!' : 'Spara data'}
     </button>
   );
 }
 
-export default Search
+export default SearchButton;

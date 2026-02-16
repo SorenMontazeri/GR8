@@ -37,7 +37,7 @@ def get_info(id: int):
     cur = conn.cursor()
     cur.execute("SELECT ID, name FROM test WHERE id = ? ", (id,))
     row = cur.fetchone()
-    conn.close
+    conn.close()
     return row
 
 

@@ -1,9 +1,13 @@
 import sqlite3
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+DB_PATH = Path(__file__).with_name("test.db")
+
+
 def runData():
-    conn = sqlite3.connect("test.db")
+    conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute("PRAGMA foreign_keys = ON;")
 
@@ -30,19 +34,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.on_event("startup")
+def startup_seed() -> None:
+    runData()
+
+
 @app.get("/api/info/{id}")
 def get_info(id: int):
-    conn = sqlite3.connect("test.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("SELECT ID, name FROM test WHERE id = ? ", (id,))
     row = cur.fetchone()
-    conn.close
-    return row
-
-
-def get_number(name: str):
-    key = name.lower()
-    if key not in people:
-        raise HTTPException(status_code=404, detail="Name not found")
-    return {"number": people[key]}  # <-- bara svaret
+    conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="id not found")
+    return {"id": row["id"], "name": row["name"]}

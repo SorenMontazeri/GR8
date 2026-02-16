@@ -29,6 +29,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 @app.get("/api/info/{id}")
 def get_info(id: int):
     conn = sqlite3.connect("test.db")

@@ -37,6 +37,7 @@ def transform_event(src: Dict[str, Any]) -> Dict[str, Any]:
         "start_time": src.get("start_time"),
         "end_time": src.get("end_time"),
         "image_id": image.get("id"),
+        "data": image.get("data"),
     }
 
     # put top class only (optional)
@@ -55,7 +56,8 @@ def transform_event(src: Dict[str, Any]) -> Dict[str, Any]:
         "camera_id": camera_id,
         "timestamp": timestamp,
         "snapshot_ref": snapshot_ref,
-        "source": "live",
+        "source": "replay",
+        "tags": [],
         "payload": payload,
     }
 

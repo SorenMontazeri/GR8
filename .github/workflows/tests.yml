@@ -3,7 +3,7 @@ name: Backend tests (Python)
 on:
   push:
     branches:
-      - ci-test
+      - databas
 
 
 

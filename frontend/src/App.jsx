@@ -12,8 +12,9 @@ function App() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         return res.json();
       })
-      .then(({ number }) => {
-        console.log("number:", number);
+      .then((data) => {
+        console.log("data:", data);        
+        console.log("name:", data.name);
       })
       .catch((err) => {
         console.error("fetch failed:", err);

@@ -4,3 +4,4 @@ venv/
 **/test.json
 recordings/
 .DS_Store
+.env

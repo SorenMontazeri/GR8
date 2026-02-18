@@ -1,0 +1,47 @@
+{
+  "id": "IzuVaZPsCPai6MEPxt_JoQo",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "This is a high-quality, close-up image of the animated character **Elsa** from Disney's movie *Frozen*.\n\nHere are some key details:\n\n*   **Character:** The image features Elsa, recognizable by her platinum blonde hair styled in a thick, side-swept braid, her large blue eyes, and fair skin with a hint of purple eyeshadow and pink on her cheeks and lips.\n*   **Expression:** She has a gentle, slightly pensive or serious expression on her face. Her lips are closed, and her gaze is directed slightly to her right (our left).\n*   **Attire:** She is wearing her iconic ice-blue, off-the-shoulder gown, which is covered in sparkling, snowflake-like patterns.\n*   **Lighting and Style:** The lighting highlights her face and the glittering details of her dress. The animation style is detailed and realistic, giving her a lifelike quality.\n*   **Composition:** The shot is a close-up, focusing on her head and shoulders, which draws attention to her facial features and expression. The background is a soft, out-of-focus blend of blue and white, complementing her color scheme and suggesting a wintry or magical environment.",
+        "refusal": null,
+        "role": "assistant",
+        "audio": null,
+        "function_call": null,
+        "tool_calls": null,
+        "reasoning_content": "Alright, here we go. My job is to concisely describe what I see in this image. First things first, I need to break it down. I'll start by assessing the overall composition – it's a tight shot, probably to focus attention. Then, I need to lock in on the key element. My immediate task is to identify the subject. It looks like it's a close-up, probably to focus attention on that head and shoulder of this animated character.\n",
+        "thinking_blocks": [
+          {
+            "type": "thinking",
+            "thinking": "Alright, here we go. My job is to concisely describe what I see in this image. First things first, I need to break it down. I'll start by assessing the overall composition – it's a tight shot, probably to focus attention. Then, I need to lock in on the key element. My immediate task is to identify the subject. It looks like it's a close-up, probably to focus attention on that head and shoulder of this animated character.\n"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1771387683,
+  "model": "gemini_2_5_pro",
+  "object": "chat.completion",
+  "service_tier": null,
+  "system_fingerprint": null,
+  "usage": {
+    "completion_tokens": 309,
+    "prompt_tokens": 29856,
+    "total_tokens": 30165,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": 55,
+      "rejected_prediction_tokens": null,
+      "text_tokens": 254
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cached_tokens": null,
+      "text_tokens": 29856
+    }
+  }
+}

@@ -2,7 +2,6 @@ import json
 import httpx
 import os
 from dotenv import load_dotenv
-
 class LLMClientSync:
     def __init__(self, endpoint, api_key, model, timeout=30.0):
         self.endpoint = endpoint
@@ -16,7 +15,7 @@ class LLMClientSync:
             },
         )
 
-    def query(self, prompt, base64image):
+    def query(self, metadata):
         body = {
             "model": self.model,
             "messages": [
@@ -25,21 +24,14 @@ class LLMClientSync:
                     "content": [
                         {
                             "type": "text",
-                            "text": prompt
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64image}"
-                            }
+                            "text": json.dumps(metadata, ensure_ascii=False),
                         }
-                    ]
+                    ],
                 }
-            ]
+            ],
         }
 
         response = self.client.post(self.endpoint, json=body)
-        response.raise_for_status()
         return response.json()
 
     def close(self):
@@ -53,12 +45,8 @@ def test_sync():
     model = "prisma_gemini_pro"
 
     llm = LLMClientSync(endpoint, api_key, model)
-    image = "pass"
-
-    response = llm.query(
-        "explain what you see in the image",
-        image
-    )
+    metadata = {"prompt": "explain what you see in the image"}
+    response = llm.query(metadata)
 
     with open("response_sync.json", "w", encoding="utf-8") as f:
         json.dump(response, f, indent=2, ensure_ascii=False)

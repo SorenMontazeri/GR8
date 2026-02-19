@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 from datetime import datetime
 
-from dataTesting.source.replay_reader import RawEvent
+from ingestion.source.replay_reader import RawEvent
 
 
 class RawEventStore:
     """Valfri lagring av rådata (för replay/debug), INTE databasen.
 
-    Ni sa att ni inte vill ha raw log till DB — så detta är bara filbaserat.
+    (Används i största syfte för testning)
     """
     def __init__(self, folder: str = "replay_out") -> None:
         self.base = Path(folder)

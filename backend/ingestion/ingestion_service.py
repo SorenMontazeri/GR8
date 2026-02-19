@@ -4,13 +4,13 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from dataTesting.queue.event_buffer import EventBuffer
-from dataTesting.source.replay_reader import iter_replay_events, RawEvent
-from dataTesting.storage.raw_event_store import RawEventStore
-from dataTesting.validation.validator import validate_raw_event
-from dataTesting.normalization.mapper import transform_axis_payload_to_internal_event
+from ingestion.queue.event_buffer import EventBuffer
+from ingestion.source.replay_reader import iter_replay_events, RawEvent
+from ingestion.storage.raw_event_store import RawEventStore
+from ingestion.validation.validator import validate_raw_event
+from ingestion.normalization.mapper import transform_axis_payload_to_internal_event
 
-from dataTesting.normalization.mapper import (
+from ingestion.normalization.mapper import (
     InternalEvent,
     map_object_track_to_internal_event,
     SourceType,
@@ -21,7 +21,7 @@ class IngestionService:
     """Kopplar ihop ingestion-pipelinen:
     source -> validator -> mapper -> buffer -> (dispatch senare)
 
-    Målet: live och replay ska trigga exakt samma logik (AC03).
+    Målet: live och replay ska trigga exakt samma logik (F03).
     """
     def __init__(
         self,
@@ -42,7 +42,7 @@ class IngestionService:
         # 1) validera
         res = validate_raw_event(raw_event)
         if not res.ok or res.event is None:
-            # AC02: logga + flagga utan crash (här: print, byt senare mot logger)
+            # F02: logga + flagga utan crash (här: print, byt senare mot logger)
             print(f"[ingestion][invalid] {res.error} replay_seq={raw_event.replay_seq}")
             return False
 
@@ -69,7 +69,7 @@ class IngestionService:
         return False
 
     def run_replay(self, replay_file_path: str) -> int:
-        """Kör en replay-fil igenom ingestion (AC03). Returnerar antal InternalEvents."""
+        """Kör en replay-fil igenom ingestion (F03). Returnerar antal InternalEvents."""
         count = 0
         for raw_event in iter_replay_events(replay_file_path):
             ok = self.handle_raw_event(raw_event)

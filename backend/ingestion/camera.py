@@ -12,7 +12,7 @@ class Camera:
         self.mqtt_client = mqtt.Client()
 
         self.init_recording(ffmpeg, segment_seconds)
-        self.init_buffer()
+        self.init_buffer() #buffer for rtsp flow 2, hot buffer 30 seconds 1 fps
         self.init_mqtt(broker_host, broker_port)
 
     def init_recording(self, ffmpeg, segment_seconds):

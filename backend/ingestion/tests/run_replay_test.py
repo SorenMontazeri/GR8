@@ -15,11 +15,11 @@
 #   Lägger InternalEvent i en EventBuffer (ingestion_service.py)
 
 
-from dataTesting.ingestion_service import IngestionService
+from ingestion.ingestion_service import IngestionService
 
 def main():
     svc = IngestionService(enable_raw_store=False)  # stäng av ifall ni inte vill skriva filer
-    n = svc.run_replay("dataTesting/test.json")
+    n = svc.run_replay("ingestion/test.json")
     print(f"Created InternalEvents: {n}")
     print(f"Buffer size: {svc.buffer.qsize()}")
 

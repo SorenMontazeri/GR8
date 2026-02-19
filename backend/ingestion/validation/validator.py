@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional, Tuple
 
-from dataTesting.source.replay_reader import RawEvent
+from ingestion.source.replay_reader import RawEvent
 
 
 EventKind = Literal["object_track", "frame", "unknown"]
@@ -46,7 +46,7 @@ def _guess_kind(payload: Dict[str, Any]) -> EventKind:
 
 
 def validate_raw_event(raw_event: RawEvent) -> ValidationResult:
-    """Minimivalidering (AC02):
+    """Minimivalidering (F02):
     - payload måste vara dict
     - ska inte vara tom
     - flagga/logga invalid utan crash

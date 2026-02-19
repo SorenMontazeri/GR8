@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterator, Literal, Optional, Union
 from datetime import datetime, timezone
 
 
-SourceType = Literal["replay"]
+SourceType = Literal["live", "replay"]
 
 
 @dataclass(frozen=True)

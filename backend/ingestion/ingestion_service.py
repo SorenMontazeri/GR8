@@ -4,6 +4,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+from ingestion.dispatch.dispatcher import Dispatcher, DirectDispatcher
 from ingestion.queue.event_buffer import EventBuffer
 from ingestion.source.replay_reader import iter_replay_events, RawEvent
 from ingestion.storage.raw_event_store import RawEventStore
@@ -19,18 +20,29 @@ from ingestion.normalization.mapper import (
 
 class IngestionService:
     """Kopplar ihop ingestion-pipelinen:
-    source -> validator -> mapper -> buffer -> (dispatch senare)
+    source -> validator -> mapper -> dispatcher
 
     Målet: live och replay ska trigga exakt samma logik (F03).
     """
     def __init__(
         self,
         *,
+        dispatcher: Optional[Dispatcher[InternalEvent]] = None,
         buffer: Optional[EventBuffer[InternalEvent]] = None,
         raw_store: Optional[RawEventStore] = None,
         enable_raw_store: bool = True,
     ) -> None:
-        self.buffer = buffer or EventBuffer()
+        if dispatcher is not None and buffer is not None:
+            raise ValueError("Use either dispatcher or buffer, not both.")
+
+        if dispatcher is None:
+            # Bakåtkompatibilitet: befintlig testkod som läser från buffer ska fortsätta fungera.
+            self.buffer = buffer or EventBuffer()
+            self.dispatcher: Dispatcher[InternalEvent] = DirectDispatcher(self.buffer.put)
+        else:
+            self.buffer = None
+            self.dispatcher = dispatcher
+
         self.raw_store = raw_store or RawEventStore()
         self.enable_raw_store = enable_raw_store
 
@@ -61,7 +73,7 @@ class IngestionService:
                 source="replay" if res.event.source == "replay" else "live",
                 fallback_event_id=self._next_event_id(),
             )
-            self.buffer.put(internal)
+            self.dispatcher.dispatch(internal)
             return True
 
         # Om vi inte kan mappa ännu (t.ex. frame eller unknown), flagga men krascha inte

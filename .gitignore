@@ -5,3 +5,4 @@ venv/
 recordings/
 .DS_Store
 .env
+response.json

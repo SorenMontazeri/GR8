@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 
 
-
+#a
 class LLMClient:
     def __init__(self, endpoint, api_key, model, timeout=30.0):
         if not endpoint:

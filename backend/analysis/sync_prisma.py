@@ -5,6 +5,13 @@ from dotenv import load_dotenv
 
 class LLMClientSync:
     def __init__(self, endpoint, api_key, model, timeout=30.0):
+        if not endpoint:
+            raise ValueError("endpoint is required")
+        if not api_key:
+            raise ValueError("api_key is required")
+        if not model:
+            raise ValueError("model is required")
+
         self.endpoint = endpoint
         self.model = model
 

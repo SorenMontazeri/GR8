@@ -4,8 +4,17 @@ import asyncio
 import os
 from dotenv import load_dotenv
 
+
+
 class LLMClient:
     def __init__(self, endpoint, api_key, model, timeout=30.0):
+        if not endpoint:
+            raise ValueError("endpoint is required")
+        if not api_key:
+            raise ValueError("api_key is required")
+        if not model:
+            raise ValueError("model is required")
+
         self.endpoint = endpoint
         self.model = model
 
@@ -39,14 +48,24 @@ class LLMClient:
             ]
         }
 
-        response = await self.client.post(self.endpoint, json=body)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = await self.client.post(self.endpoint, json=body)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"HTTP error {exc.response.status_code} from LLM endpoint"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
+
+        try:
+            return response.json()
+        except json.JSONDecodeError as exc:
+            raise ValueError("LLM endpoint returned invalid JSON") from exc
 
 
     async def close(self):
         await self.client.aclose()
-
 
 async def test():
         load_dotenv()

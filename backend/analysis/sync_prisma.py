@@ -45,9 +45,20 @@ class LLMClientSync:
             ]
         }
 
-        response = self.client.post(self.endpoint, json=body)
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = self.client.post(self.endpoint, json=body)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"HTTP error {exc.response.status_code} from LLM endpoint"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
+
+        try:
+            return response.json()
+        except json.JSONDecodeError as exc:
+            raise ValueError("LLM endpoint returned invalid JSON") from exc
 
     def close(self):
         self.client.close()

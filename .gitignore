@@ -1,7 +1,6 @@
 api_key.txt
 __pycache__/
 venv/
-**/test.json
 recordings/
 database/recordings/
 .DS_Store

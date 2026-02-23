@@ -1,3 +1,4 @@
+api_key.txt
 __pycache__/
 venv/
 **/test.json
@@ -151,3 +152,5 @@ __pycache__/
 .pytest_cache/
 
 # End of https://www.toptal.com/developers/gitignore/api/node
+.env
+

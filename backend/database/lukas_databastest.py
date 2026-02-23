@@ -48,7 +48,17 @@ def get_info(id: int):
     cur.execute("SELECT ID, name FROM test WHERE id = ? ", (id,))
     row = cur.fetchone()
     conn.close()
+<<<<<<< HEAD
+    return row
+
+
+def get_number(name: str):
+    key = name.lower()
+    if key not in people:
+        raise HTTPException(status_code=404, detail="Name not found")
+    return {"number": people[key]}  # <-- bara svaret
+=======
     if row is None:
         raise HTTPException(status_code=404, detail="id not found")
     return {"id": row["id"], "name": row["name"]}
-
+>>>>>>> b8be8648a2313de5e36604e6e820dd2d4f26e410

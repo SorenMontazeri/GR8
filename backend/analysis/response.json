@@ -1,0 +1,41 @@
+{
+  "id": "SsCVaYT8MoHRjMoPl4iomA8",
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "I see various colors in the image, primarily:\n\n*   **Black:** For Mickey's head, ears, body, and tail.\n*   **Red:** For Mickey's shorts.\n*   **Yellow/Orange:** For Mickey's shoes.\n*   **White:** For the background, Mickey's gloves, and the buttons on his shorts.\n*   **Peach/Skin Tone:** For Mickey's face, mouth, and parts of his hands.\n*   **White with light gray/blue shading:** Around Mickey's feet, suggesting a shadow or subtle ground.",
+        "refusal": null,
+        "role": "assistant",
+        "audio": null,
+        "function_call": null,
+        "tool_calls": null
+      }
+    }
+  ],
+  "created": 1771421770,
+  "model": "gemini_2_5_flash",
+  "object": "chat.completion",
+  "service_tier": null,
+  "system_fingerprint": null,
+  "usage": {
+    "completion_tokens": 125,
+    "prompt_tokens": 1823,
+    "total_tokens": 1948,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": null,
+      "audio_tokens": null,
+      "reasoning_tokens": null,
+      "rejected_prediction_tokens": null,
+      "text_tokens": 125
+    },
+    "prompt_tokens_details": {
+      "audio_tokens": null,
+      "cached_tokens": null,
+      "text_tokens": 17,
+      "image_tokens": 1806
+    }
+  }
+}

@@ -1,8 +1,10 @@
 api_key.txt
 __pycache__/
 venv/
-**/test.json
 recordings/
 .DS_Store
 .env
-response.json
+**.webp
+**.jpeg
+**.jpg
+**.json

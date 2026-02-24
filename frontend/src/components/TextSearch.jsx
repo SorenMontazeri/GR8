@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 function TextSearch({name, setName}) {
   return (
     <div className="my-4">

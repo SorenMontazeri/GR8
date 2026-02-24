@@ -19,16 +19,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from datetime import datetime
 
 @app.get("/api/image/{name}")
 def get_image(name: str):
-    if name == "bov":
-        return {
-            "name": name,
-            "image": image_from_timestamp(timestamp_from_description(name)),
-        }
-    else:
-        raise HTTPException(status_code=404, detail="Image not found")
+    ts = timestamp_from_description(name)
+    if ts is None:
+        raise HTTPException(status_code=404, detail="No analysis entry")
+
+    # Convert ISO string -> datetime
+    try:
+        ts_dt = datetime.fromisoformat(ts)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Invalid timestamp format")
+
+    try:
+        image_b64 = image_from_timestamp(ts_dt)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="No matching video")
+
+    return {
+        "name": name,
+        "image": image_b64,
+    }
 
 
 def create_database() -> None:

@@ -1,29 +1,29 @@
-import { useState } from 'react'
-import './App.css'
-import SearchButton from './components/Searchbutton'
-import TextSearch from './components/TextSearch.jsx'
-import Image from './components/Image.jsx'
+import { useState } from "react";
+import "./App.css";
+import SearchButton from "./components/Searchbutton";
+import TextSearch from "./components/TextSearch.jsx";
+import Image from "./components/Image.jsx";
 
 function App() {
-  const [name, setName] = useState('')
-  const [selectedName, setSelectedName] = useState('')
+  const [name, setName] = useState("");          // what user types
+  const [submittedName, setSubmittedName] = useState(null); // what backend sees
 
-  const handleSearch = () => {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    setSelectedName(trimmed)
+  function handleSearch() {
+    setSubmittedName(name.trim());
   }
 
   return (
-    <div className="App flex flex-col items-center justify-center min-h-screen">
+    <div className="App flex flex-col items-center justify-center min-h-screen gap-4">
       <h1 className="text-3xl font-bold text-gray-800">GR8</h1>
 
       <TextSearch name={name} setName={setName} />
-      <SearchButton onSearch={handleSearch} />
-      <Image name={selectedName} />
 
+      <SearchButton id={name} onClick={handleSearch} />
+
+      {/* This is the connection */}
+      <Image name={submittedName} />
     </div>
-  )
+  );
 }
 
-export default App
+export default App;

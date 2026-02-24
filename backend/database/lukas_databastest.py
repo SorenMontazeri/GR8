@@ -18,7 +18,7 @@ def runData():
     
     );
     """)
-    testlist = ["Lukas", "Lisa", "Einar", "Cora"]
+    testlist = ["Lisa", "Einar", "Cora"]
     cur.executemany("INSERT INTO test (name) VALUES (?);", [(name,) for name in testlist])
 
     conn.commit()

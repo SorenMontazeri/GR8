@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import threading
 import time
@@ -283,6 +282,7 @@ def main() -> None:
     time.sleep(10)
     print("Hot buffer stats:", camera.hot_buffer_stats())
     camera.dump_latest_hot_buffer_frame("debug_latest.jpg")
+
     camera.stop_recording()
 
 

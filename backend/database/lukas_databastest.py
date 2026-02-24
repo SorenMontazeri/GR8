@@ -14,7 +14,8 @@ def runData():
     cur.execute("""
     CREATE TABLE IF NOT EXISTS test (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL
+    name TEXT NOT NULL, 
+    
     );
     """)
     testlist = ["Lukas", "Lisa", "Einar", "Cora"]

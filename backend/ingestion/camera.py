@@ -24,7 +24,7 @@ class BufferedFrame:
     width: int
     height: int
 
-
+#TODO move to new file, "RTSP_hotbuffer.py"
 class FrameRingBuffer:
     """Fast storlek + minnesbudget för hot buffer."""
 
@@ -64,6 +64,37 @@ class FrameRingBuffer:
             old = self._frames.popleft()
             self._total_bytes -= len(old.jpeg_bytes)
 
+    def search_frame(self, target_timestamp: datetime) -> BufferedFrame | None:
+        with self._lock:
+            if not self._frames:
+                return None
+            frames = list(self._frames)
+
+        lo = 0
+        hi = len(frames) - 1
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            mid_ts = frames[mid].timestamp
+            if mid_ts < target_timestamp:
+                lo = mid + 1
+            elif mid_ts > target_timestamp:
+                hi = mid - 1
+            else:
+                return frames[mid]
+
+        if hi < 0:
+            return frames[0]
+        if lo >= len(frames):
+            return frames[-1]
+
+        before = frames[hi]
+        after = frames[lo]
+        if (target_timestamp - before.timestamp) <= (after.timestamp - target_timestamp):
+            return before
+        return after
+
+#TODO MQTT hotbuffer file MQTT_hotbuffer
+#TODO hotbuffer for MQTT with cropped frames (object frames), returns metadata from input timestamp
 
 class Camera:
     def __init__(
@@ -76,7 +107,7 @@ class Camera:
         segment_seconds: int = 10,
         hot_buffer_seconds: int = 30,
         hot_buffer_fps: int = 5,
-        hot_buffer_max_bytes: int = 50 * 1024 * 1024,
+        hot_buffer_max_bytes: int = 50 * 1024 * 1024, #TODO increase max bytes if needed
         hot_buffer_jpeg_quality: int = 70,
         hot_buffer_max_width: int = 960,
     ) -> None:

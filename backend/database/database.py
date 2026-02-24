@@ -22,13 +22,12 @@ app.add_middleware(
 
 @app.get("/api/image/{name}")
 def get_image(name: str):
-    if name == "bov":
-        return {
-            "name": name,
-            "image": image_from_timestamp(timestamp_from_description(name)),
-        }
-    else:
-        raise HTTPException(status_code=404, detail="Image not found")
+    ts = timestamp_from_description(name)
+    if ts is None:
+        raise HTTPException(status_code=404, detail="No timestamp for this description")
+
+    t = datetime.fromisoformat(ts)
+    return {"name": name, "image": image_from_timestamp(t)}
 
 
 def create_database() -> None:

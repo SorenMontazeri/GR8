@@ -311,11 +311,14 @@ def test_sync():
     base64_image = encode_image_to_base64(image)
 
 
-    #response = llm.query_description_closed(base64_image, descriptors, image_mime="image/webp" )
-    response = llm.query_description_open(base64_image, image_mime="image/webp" )
+    response1 = llm.query_description_closed(base64_image, descriptors, image_mime="image/webp" )
+    response2 = llm.query_description_open(base64_image, image_mime="image/webp" )
 
-    with open("test.json", "w", encoding="utf-8") as f:
-        json.dump(response, f, indent=2, ensure_ascii=False)
+    with open("test1.json", "w", encoding="utf-8") as f:
+        json.dump(response1, f, indent=2, ensure_ascii=False)
+
+    with open("test2.json", "w", encoding="utf-8") as f:
+        json.dump(response2, f, indent=2, ensure_ascii=False)
 
 
     llm.close()

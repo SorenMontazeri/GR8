@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import './App.css'
-import SearchButton from './components/SearchButton'
+import SearchButton from './components/Searchbutton'
 import TextSearch from './components/TextSearch.jsx'
 
 function App() {
@@ -10,14 +10,13 @@ function App() {
   return (
     <div className="App flex flex-col items-center justify-center min-h-screen">
       <h1 className="text-3xl font-bold text-gray-800">GR8</h1>
-      
-      {/* Skicka ner name och setName som props */}
+
+      {/* Update the state as the user types. */}
       <TextSearch name={name} setName={setName} />
-      
-      {/* Skicka ner name så knappen vet vad den ska spara */}
+
+      {/* Send name to database */}
       <SearchButton id={name} />
-      
-      <p className="mt-4 text-gray-500">Du skriver just nu: {name}</p>
+
     </div>
    )
 }

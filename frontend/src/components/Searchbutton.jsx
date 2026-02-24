@@ -4,15 +4,15 @@ function SearchButton({ id }) {
   const [clicked, setClicked] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const handleSave = () => {
-    // Här skickar vi 'name' till din backend
+    // Send id to backend 
     fetch(`http://localhost:8000/api/info/${id}`)
     .then(res => {
       if (!res.ok) throw new Error("Hittade inte ID");
-      return res.json(); // Gör om svaret till ett läsbart objekt
+      return res.json(); // creates a json format
     })
     .then(data => {
       console.log("Data mottagen:", data);
-      setUserInfo(data); // 2. Spara datan (t.ex. {id: 1, name: "Lukas"}) i state
+      setUserInfo(data); // Save the data in state
       setClicked(true);
     })
     .catch(err => {
@@ -32,7 +32,6 @@ function SearchButton({ id }) {
     </button>
 
     <div>
-      <p>Information om användaren:</p>
       {userInfo ? (
           <div>
             <p>ID: {userInfo.id}</p>

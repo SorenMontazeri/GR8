@@ -50,4 +50,3 @@ def get_timestamp_by_description(description: str) -> str | None:
     if row is None:
         return None
     return row[0]
-

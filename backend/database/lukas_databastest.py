@@ -50,5 +50,4 @@ def get_info(id: int):
     conn.close()
     if row is None:
         raise HTTPException(status_code=404, detail="id not found")
-        
     return {"id": row["id"], "name": row["name"]}

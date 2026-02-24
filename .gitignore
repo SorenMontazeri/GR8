@@ -3,6 +3,7 @@ __pycache__/
 venv/
 **/test.json
 recordings/
+database/recordings/
 .DS_Store
 
 # Created by https://www.toptal.com/developers/gitignore/api/node

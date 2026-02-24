@@ -3,10 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 import base64
 from pathlib import Path
 import sqlite3
-from datetime import datetime
 from pathlib import Path
+import os, cv2, base64
+from datetime import datetime, timedelta
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
+RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), "recordings/1")
 app = FastAPI()
 
 app.add_middleware(
@@ -21,13 +23,9 @@ app.add_middleware(
 @app.get("/api/image/{name}")
 def get_image(name: str):
     if name == "bov":
-        image_path = Path(__file__).with_name(f"output.jpg")
-        image_bytes = image_path.read_bytes()
-        image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-
         return {
             "name": name,
-            "image": image_b64,
+            "image": image_from_timestamp(timestamp_from_description(name)),
         }
     else:
         raise HTTPException(status_code=404, detail="Image not found")
@@ -63,7 +61,7 @@ def save_analysis(created_at: datetime, description: str) -> int:
     conn.close()
 
 
-def get_timestamp_by_description(description: str) -> str | None:
+def timestamp_from_description(description: str) -> str | None:
     create_database()
 
     conn = sqlite3.connect(DB_PATH)
@@ -78,3 +76,28 @@ def get_timestamp_by_description(description: str) -> str | None:
     if row is None:
         return None
     return row[0]
+
+
+def image_from_timestamp(t, clip=10):
+    for f in os.listdir(RECORDINGS_DIR):
+        try:
+            s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4")
+            if s <= t < s + timedelta(seconds=clip):
+                p = os.path.join(RECORDINGS_DIR, f)
+                cap = cv2.VideoCapture(p)
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int((t - s).total_seconds() * cap.get(cv2.CAP_PROP_FPS)))
+                ok, frame = cap.read()
+                cap.release()
+                if not ok:
+                    raise RuntimeError("Kunde inte läsa frame")
+
+                # Encode to JPEG in memory
+                _, buffer = cv2.imencode(".jpg", frame)
+                return base64.b64encode(buffer).decode("utf-8")
+
+        except:
+            pass
+
+    raise FileNotFoundError("Ingen matchande video")
+
+save_analysis(datetime(2026, 2, 23, 12, 24, 57, 300000), "test")

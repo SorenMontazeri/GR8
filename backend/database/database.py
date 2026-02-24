@@ -99,5 +99,3 @@ def image_from_timestamp(t, clip=10):
             pass
 
     raise FileNotFoundError("Ingen matchande video")
-
-save_analysis(datetime(2026, 2, 23, 12, 24, 57, 300000), "test")

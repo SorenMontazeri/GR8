@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 import imageio_ffmpeg
 
 def record_once(ffmpeg, rtsp_url, camera_id, duration_seconds):
-
     # setup directory
     camera_id = str(camera_id)
     output_directory= os.path.join(os.path.dirname(__file__), "..", "recordings", camera_id,)

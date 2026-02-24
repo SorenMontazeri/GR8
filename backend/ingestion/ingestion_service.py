@@ -17,7 +17,6 @@ from ingestion.normalization.mapper import (
     SourceType,
 )
 
-
 class IngestionService:
     """Kopplar ihop ingestion-pipelinen:
     source -> validator -> mapper -> dispatcher
@@ -74,6 +73,7 @@ class IngestionService:
                 fallback_event_id=self._next_event_id(),
             )
             self.dispatcher.dispatch(internal)
+            # TODO analys.buffer.append(internal)
             return True
 
         # Om vi inte kan mappa ännu (t.ex. frame eller unknown), flagga men krascha inte

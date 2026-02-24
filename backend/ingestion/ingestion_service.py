@@ -72,6 +72,7 @@ class IngestionService:
                 source="replay" if res.event.source == "replay" else "live",
                 fallback_event_id=self._next_event_id(),
             )
+            print(internal.timestamp)
             self.dispatcher.dispatch(internal)
             # TODO analys.buffer.append(internal)
             return True

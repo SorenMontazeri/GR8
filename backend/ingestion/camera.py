@@ -237,6 +237,24 @@ class Camera:
             return {"frames": 0, "bytes": 0, "max_frames": 0, "max_bytes": 0}
         return self.frame_buffer.stats()
 
+#för testning av RTSP data (frames)
+    def dump_latest_hot_buffer_frame(self, output_path: str = "debug_latest.jpg") -> bool:
+        frames = self.get_hot_buffer_frames(5)
+        if not frames:
+            print(f"[camera:{self.camera_id}][buffer] no frames to dump")
+            return False
+
+        latest = frames[-1]
+        with open(output_path, "wb") as f:
+            f.write(latest.jpeg_bytes)
+
+        print(
+            f"[camera:{self.camera_id}][buffer] wrote {output_path} "
+            f"ts={latest.timestamp.isoformat()} size={latest.width}x{latest.height} "
+            f"bytes={len(latest.jpeg_bytes)}"
+        )
+        return True
+
     def stop_recording(self) -> None:
         self._buffer_stop_event.set()
         if self._buffer_thread is not None:
@@ -260,9 +278,11 @@ def main() -> None:
     broker_host = "10.255.255.1"
     broker_port = 1883
 
-    camera = Camera("1", rtsp_url, ffmpeg, broker_host, broker_port, segment_seconds=5)
-    time.sleep(7)
+    camera = Camera("1", rtsp_url, ffmpeg, broker_host, broker_port, segment_seconds=20)
+    
+    time.sleep(10)
     print("Hot buffer stats:", camera.hot_buffer_stats())
+    camera.dump_latest_hot_buffer_frame("debug_latest.jpg")
     camera.stop_recording()
 
 

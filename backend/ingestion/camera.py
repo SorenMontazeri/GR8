@@ -1,4 +1,5 @@
 from __future__ import annotations
+import base64
 import json
 import threading
 import time
@@ -11,6 +12,7 @@ import cv2
 import imageio_ffmpeg
 import paho.mqtt.client as mqtt
 
+from database.database import save_analysis
 from ingestion.ingestion_service import IngestionService
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
 from ingestion.source.replay_reader import RawEvent
@@ -103,6 +105,7 @@ class Camera:
         ffmpeg: str,
         broker_host: str,
         broker_port: int,
+        analysis_client=None,
         segment_seconds: int = 10,
         hot_buffer_seconds: int = 30,
         hot_buffer_fps: int = 5,
@@ -125,6 +128,7 @@ class Camera:
         self._buffer_stop_event = threading.Event()
         self._buffer_thread: threading.Thread | None = None
         self.ingestion_service = IngestionService()
+        self.analysis_client = analysis_client
 
         self.init_recording(ffmpeg, segment_seconds)
         self.init_buffer()
@@ -149,16 +153,28 @@ class Camera:
             print(f"[camera:{self.camera_id}][mqtt] invalid json: {e}")
             return
 
-        raw_event = RawEvent(
-            raw=data,
-            received_at=datetime.now(timezone.utc),
-            source="live",
-            replay_seq=None,
-            replay_file=None,
+        target_timestamp = datetime.fromisoformat(data["start_time"].replace("Z", "+00:00"))
+        matched_frame = self.get_hot_buffer_frame_at(target_timestamp)
+        frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
+        analysis_response = self.analysis_client.query_description_open(
+            frame_b64,
+            image_mime="image/jpeg",
         )
-        ok = self.ingestion_service.handle_raw_event(raw_event)
-        if not ok:
-            print(f"[camera:{self.camera_id}][mqtt] event skipped/invalid")
+        save_analysis(
+            created_at=target_timestamp,
+            description=analysis_response["description"],
+        )
+
+       # raw_event = RawEvent(
+       #     raw=data,
+       #     received_at=datetime.now(timezone.utc),
+       #     source="live",
+       #     replay_seq=None,
+       #     replay_file=None,
+       # )
+       # ok = self.ingestion_service.handle_raw_event(raw_event)
+       # if not ok:
+       #     print(f"[camera:{self.camera_id}][mqtt] event skipped/invalid")
 
     def init_buffer(self) -> None:
         max_frames = self.hot_buffer_seconds * self.hot_buffer_fps
@@ -230,6 +246,11 @@ class Camera:
             return []
         window = seconds if seconds is not None else self.hot_buffer_seconds
         return self.frame_buffer.latest(window)
+
+    def get_hot_buffer_frame_at(self, target_timestamp: datetime) -> BufferedFrame | None:
+        if self.frame_buffer is None:
+            return None
+        return self.frame_buffer.search_frame(target_timestamp)
 
     def hot_buffer_stats(self) -> Dict[str, int]:
         if self.frame_buffer is None:

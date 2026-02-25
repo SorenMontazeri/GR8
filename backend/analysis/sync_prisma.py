@@ -307,7 +307,7 @@ def test_sync():
     descriptors = ["thief", "civilian", "human", "dog", "cat", "rat", "dark_clothed", "light_clothed"]
 
     llm = LLMClientSync(endpoint, api_key, model)
-    image = "test.webp"
+    image = "soren.jpg"
     base64_image = encode_image_to_base64(image)
 
 

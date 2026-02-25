@@ -17,7 +17,7 @@ from ingestion.ingestion_service import IngestionService
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
 from ingestion.source.replay_reader import RawEvent
 
-
+#a
 @dataclass(frozen=True)
 class BufferedFrame:
     timestamp: datetime
@@ -93,7 +93,7 @@ class FrameRingBuffer:
         if (target_timestamp - before.timestamp) <= (after.timestamp - target_timestamp):
             return before
         return after
-
+#
 #TODO MQTT hotbuffer file MQTT_hotbuffer
 #TODO hotbuffer for MQTT with cropped frames (object frames), returns metadata from input timestamp
 

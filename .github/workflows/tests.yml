@@ -1,14 +1,12 @@
-name: Backend tests (Python)
+name: CI
 
 on:
   push:
-    branches:
-      - databas
-
-
+  pull_request:
 
 jobs:
   backend:
+    name: Backend python
     runs-on: ubuntu-latest
 
     defaults:
@@ -33,3 +31,31 @@ jobs:
 
       - name: Run tests
         run: pytest
+
+  # --- Frontend (React) ---
+  # Avkommentera när ni har en fungerande frontend med package.json + npm test
+  #
+  # frontend:
+  #   name: Frontend (React)
+  #   runs-on: ubuntu-latest
+  #
+  #   defaults:
+  #     run:
+  #       working-directory: frontend
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Node
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: "20"
+  #         cache: "npm"
+  #         cache-dependency-path: frontend/package-lock.json
+  #
+  #     - name: Install dependencies
+  #       run: npm ci
+  #
+  #     - name: Run tests
+  #       run: npm test

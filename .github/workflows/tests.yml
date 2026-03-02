@@ -9,10 +9,6 @@ jobs:
     name: Backend python
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,11 +23,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r backend/requirements.txt
 
       - name: Run tests
-        run: pytest
-
+        run: python -m pytest backend/tests
   # --- Frontend (React) ---
   # Avkommentera när ni har en fungerande frontend med package.json + npm test
   #

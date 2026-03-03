@@ -58,6 +58,7 @@ def save_analysis(created_at: datetime, description: str) -> int:
     conn.commit()
     row_id = cur.lastrowid
     conn.close()
+    return row_id
 
 
 def timestamp_from_description(description: str) -> str | None:

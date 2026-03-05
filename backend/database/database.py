@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 import os, cv2, base64
 from datetime import datetime, timedelta
-
+import uvicorn
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
 RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), "recordings/1")
 app = FastAPI()
@@ -112,3 +112,8 @@ def image_from_timestamp(t, clip=10):
             pass
 
     raise FileNotFoundError("Ingen matchande video")
+
+if __name__ == "__main__":
+    #run this command 
+    uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=True)
+    

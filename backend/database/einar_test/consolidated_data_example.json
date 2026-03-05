@@ -1,0 +1,343 @@
+{
+    "duration": 3.5,
+    "end_reason": "Completed",
+    "end_time": "2026-02-09T13:24:39.421561Z",
+    "id": "4b536f79-dd03-47d1-82a5-ca083267e97b",
+    "image": {
+        "bounding_box": {
+            "bottom": 0.5699,
+            "left": 0.0178,
+            "right": 0.0393,
+            "top": 0.527
+        },
+        "data": "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",
+        "timestamp": "2026-02-09T13:24:37.321568Z"
+    },
+    "observations": [
+        {
+            "bounding_box": {
+                "bottom": 0.5756,
+                "left": 0.017,
+                "right": 0.03,
+                "top": 0.5411
+            },
+            "timestamp": "2026-02-09T13:24:35.921568Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5693,
+                "left": 0.017,
+                "right": 0.0309,
+                "top": 0.5443
+            },
+            "timestamp": "2026-02-09T13:24:36.021567Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5693,
+                "left": 0.0175,
+                "right": 0.0313,
+                "top": 0.5453
+            },
+            "timestamp": "2026-02-09T13:24:36.121567Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5724,
+                "left": 0.0184,
+                "right": 0.0313,
+                "top": 0.5453
+            },
+            "timestamp": "2026-02-09T13:24:36.221567Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5714,
+                "left": 0.0187,
+                "right": 0.0318,
+                "top": 0.5422
+            },
+            "timestamp": "2026-02-09T13:24:36.321564Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5683,
+                "left": 0.0187,
+                "right": 0.0327,
+                "top": 0.5376
+            },
+            "timestamp": "2026-02-09T13:24:36.421566Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0193,
+                "right": 0.0342,
+                "top": 0.535
+            },
+            "timestamp": "2026-02-09T13:24:36.521564Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0202,
+                "right": 0.036,
+                "top": 0.5334
+            },
+            "timestamp": "2026-02-09T13:24:36.621564Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5662,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5318
+            },
+            "timestamp": "2026-02-09T13:24:36.721565Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5646,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5302
+            },
+            "timestamp": "2026-02-09T13:24:36.821566Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5651,
+                "left": 0.0205,
+                "right": 0.036,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:36.921566Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5667,
+                "left": 0.0205,
+                "right": 0.0351,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.021558Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0354,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.121565Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0363,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.221564Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.321563Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.421563Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.521559Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5297
+            },
+            "timestamp": "2026-02-09T13:24:37.621562Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5683,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5307
+            },
+            "timestamp": "2026-02-09T13:24:37.721561Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5698,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5323
+            },
+            "timestamp": "2026-02-09T13:24:37.821563Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5339
+            },
+            "timestamp": "2026-02-09T13:24:37.921562Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5355
+            },
+            "timestamp": "2026-02-09T13:24:38.021561Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.036,
+                "top": 0.535
+            },
+            "timestamp": "2026-02-09T13:24:38.121558Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0351,
+                "top": 0.5334
+            },
+            "timestamp": "2026-02-09T13:24:38.221561Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0354,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.321560Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0363,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.421560Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.521556Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.621560Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.721559Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5703,
+                "left": 0.0205,
+                "right": 0.0366,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.821556Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5693,
+                "left": 0.0205,
+                "right": 0.0372,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:38.921557Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5678,
+                "left": 0.0205,
+                "right": 0.038,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:39.021558Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0383,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:39.121558Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0383,
+                "top": 0.5328
+            },
+            "timestamp": "2026-02-09T13:24:39.221556Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0383,
+                "top": 0.5339
+            },
+            "timestamp": "2026-02-09T13:24:39.321558Z"
+        },
+        {
+            "bounding_box": {
+                "bottom": 0.5673,
+                "left": 0.0205,
+                "right": 0.0383,
+                "top": 0.5355
+            },
+            "timestamp": "2026-02-09T13:24:39.421556Z"
+        }
+    ],
+    "start_time": "2026-02-09T13:24:35.921572Z"
+}

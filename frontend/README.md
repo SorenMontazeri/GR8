@@ -1,3 +1,16 @@
+# To run fullstack
+Terminal 1: 
+cd database
+uvicorn database:app --reload --port 8000
+
+Termianl 2:
+cd frontend
+npm run dev 
+
+Copy the adress from Terminal 2 (http://localhost:5173/) 
+-------------------------------
+
+
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

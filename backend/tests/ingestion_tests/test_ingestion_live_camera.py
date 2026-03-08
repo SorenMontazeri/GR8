@@ -52,13 +52,24 @@ def _ensure_stub_modules() -> None:
         sys.modules["paho.mqtt"] = mqtt_pkg
         sys.modules["paho.mqtt.client"] = mqtt_client_mod
 
+    if "database.database" not in sys.modules:
+        database_pkg = types.ModuleType("database")
+        database_mod = types.ModuleType("database.database")
+
+        def _save_analysis(*args, **kwargs):
+            return None
+
+        database_mod.save_analysis = _save_analysis
+        database_pkg.database = database_mod
+        sys.modules["database"] = database_pkg
+        sys.modules["database.database"] = database_mod
+
 
 _ensure_stub_modules()
 
-from ingestion.camera import BufferedFrame, Camera, FrameRingBuffer  # noqa: E402
-from ingestion.dispatch.dispatcher import DirectDispatcher  # noqa: E402
-from ingestion.ingestion_service import IngestionService  # noqa: E402
-from ingestion.source.replay_reader import RawEvent  # noqa: E402
+import ingestion.camera as camera_module  # noqa: E402
+from ingestion.camera import Camera  # noqa: E402
+from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer  # noqa: E402
 
 
 class _Msg:
@@ -66,73 +77,63 @@ class _Msg:
         self.payload = payload
 
 
-class _SpyIngestionService:
+class _SpyAnalysisClient:
     def __init__(self) -> None:
-        self.calls: list[RawEvent] = []
+        self.calls = []
 
-    def handle_raw_event(self, raw_event: RawEvent) -> bool:
-        self.calls.append(raw_event)
-        return True
+    def query_description_open(self, image_b64: str, image_mime: str = "image/jpeg") -> dict:
+        self.calls.append({"image_b64": image_b64, "image_mime": image_mime})
+        return {"description": "stub-description"}
 
 
 class CameraOnMessageTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.saved = []
+
+        def _fake_save_analysis(*, created_at, description):
+            self.saved.append({"created_at": created_at, "description": description})
+
+        camera_module.save_analysis = _fake_save_analysis
+
     def _make_camera(self) -> Camera:
         cam = Camera.__new__(Camera)
         cam.camera_id = "cam-1"
+        cam.frame_buffer = FrameRingBuffer(max_frames=10, max_bytes=10_000)
+        from ingestion.buffers.mqtt_event_buffer import MqttEventRingBuffer
+        cam.mqtt_buffer = MqttEventRingBuffer(max_events=100, max_bytes=100_000)
+        cam.analysis_client = _SpyAnalysisClient()
         return cam
 
-    def test_on_message_valid_json_creates_live_raw_event(self) -> None:
+    def test_on_message_valid_json_uses_hot_buffer_and_saves_analysis(self) -> None:
         cam = self._make_camera()
-        spy = _SpyIngestionService()
-        cam.ingestion_service = spy
+        ts = datetime.now(timezone.utc)
+        cam.frame_buffer.append(
+            BufferedFrame(timestamp=ts, jpeg_bytes=b"fake-jpeg-bytes", width=10, height=10)
+        )
 
-        payload = {"id": "track-1", "channel_id": 1, "start_time": "2026-02-19T10:00:00Z"}
-        msg = _Msg(json.dumps(payload).encode("utf-8"))
+        payload = {
+            "id": "track-1",
+            "channel_id": 1,
+            "start_time": ts.isoformat().replace("+00:00", "Z"),
+        }
 
-        cam.on_message(None, None, msg)
+        cam.on_message(None, None, _Msg(json.dumps(payload).encode("utf-8")))
 
-        self.assertEqual(len(spy.calls), 1)
-        raw_event = spy.calls[0]
-        self.assertEqual(raw_event.raw, payload)
-        self.assertEqual(raw_event.source, "live")
-        self.assertIsNone(raw_event.replay_seq)
-        self.assertIsNone(raw_event.replay_file)
+        self.assertEqual(len(cam.analysis_client.calls), 1)
+        self.assertEqual(cam.analysis_client.calls[0]["image_mime"], "image/jpeg")
+        self.assertGreater(len(cam.analysis_client.calls[0]["image_b64"]), 0)
+        self.assertEqual(len(self.saved), 1)
+        self.assertEqual(self.saved[0]["description"], "stub-description")
+        self.assertEqual(cam.mqtt_buffer.stats()["events"], 1)
 
     def test_on_message_invalid_json_is_handled(self) -> None:
         cam = self._make_camera()
-        spy = _SpyIngestionService()
-        cam.ingestion_service = spy
 
         cam.on_message(None, None, _Msg(b"{"))
         cam.on_message(None, None, _Msg(b""))
 
-        self.assertEqual(len(spy.calls), 0)
-
-    def test_on_message_live_payload_dispatches_internal_event(self) -> None:
-        cam = self._make_camera()
-        dispatched = []
-        cam.ingestion_service = IngestionService(
-            enable_raw_store=False,
-            dispatcher=DirectDispatcher(dispatched.append),
-        )
-
-        payload = {
-            "id": "track-live-123",
-            "channel_id": 1,
-            "start_time": "2026-02-19T10:00:00Z",
-            "end_time": "2026-02-19T10:00:01Z",
-            "duration": 1.0,
-            "classes": [{"type": "Human", "score": 0.9}],
-            "parts": [{"object_track_id": "unused-for-now"}],
-        }
-        msg = _Msg(json.dumps(payload).encode("utf-8"))
-
-        cam.on_message(None, None, msg)
-
-        self.assertEqual(len(dispatched), 1)
-        event = dispatched[0]
-        self.assertEqual(event.track_id, "track-live-123")
-        self.assertEqual(event.source, "live")
+        self.assertEqual(len(cam.analysis_client.calls), 0)
+        self.assertEqual(len(self.saved), 0)
 
 
 class FrameRingBufferTests(unittest.TestCase):

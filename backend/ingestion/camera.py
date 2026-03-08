@@ -3,99 +3,17 @@ import base64
 import json
 import threading
 import time
-from collections import deque
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Deque, Dict, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import cv2
 import imageio_ffmpeg
 import paho.mqtt.client as mqtt
 
 from database.database import save_analysis
-from ingestion.ingestion_service import IngestionService
+from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
+from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
-from ingestion.source.replay_reader import RawEvent
-
-#a
-@dataclass(frozen=True)
-class BufferedFrame:
-    timestamp: datetime
-    jpeg_bytes: bytes
-    width: int
-    height: int
-
-#TODO move to new file, "RTSP_hotbuffer.py"
-class FrameRingBuffer:
-    """Fast storlek + minnesbudget för hot buffer."""
-
-    def __init__(self, max_frames: int, max_bytes: int) -> None:
-        self._frames: Deque[BufferedFrame] = deque()
-        self._max_frames = max_frames
-        self._max_bytes = max_bytes
-        self._total_bytes = 0
-        self._lock = threading.Lock()
-
-    def append(self, frame: BufferedFrame) -> None:
-        with self._lock:
-            self._frames.append(frame)
-            self._total_bytes += len(frame.jpeg_bytes)
-            self._trim_locked()
-
-    def latest(self, seconds: int) -> List[BufferedFrame]:
-        if seconds <= 0:
-            return []
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
-        with self._lock:
-            return [f for f in self._frames if f.timestamp >= cutoff]
-
-    def stats(self) -> Dict[str, int]:
-        with self._lock:
-            return {
-                "frames": len(self._frames),
-                "bytes": self._total_bytes,
-                "max_frames": self._max_frames,
-                "max_bytes": self._max_bytes,
-            }
-
-    def _trim_locked(self) -> None:
-        while self._frames and (
-            len(self._frames) > self._max_frames or self._total_bytes > self._max_bytes
-        ):
-            old = self._frames.popleft()
-            self._total_bytes -= len(old.jpeg_bytes)
-
-    def search_frame(self, target_timestamp: datetime) -> BufferedFrame | None:
-        with self._lock:
-            if not self._frames:
-                return None
-            frames = list(self._frames)
-
-        lo = 0
-        hi = len(frames) - 1
-        while lo <= hi:
-            mid = (lo + hi) // 2
-            mid_ts = frames[mid].timestamp
-            if mid_ts < target_timestamp:
-                lo = mid + 1
-            elif mid_ts > target_timestamp:
-                hi = mid - 1
-            else:
-                return frames[mid]
-
-        if hi < 0:
-            return frames[0]
-        if lo >= len(frames):
-            return frames[-1]
-
-        before = frames[hi]
-        after = frames[lo]
-        if (target_timestamp - before.timestamp) <= (after.timestamp - target_timestamp):
-            return before
-        return after
-#
-#TODO MQTT hotbuffer file MQTT_hotbuffer
-#TODO hotbuffer for MQTT with cropped frames (object frames), returns metadata from input timestamp
 
 class Camera:
     def __init__(
@@ -110,6 +28,8 @@ class Camera:
         hot_buffer_seconds: int = 30,
         hot_buffer_fps: int = 5,
         hot_buffer_max_bytes: int = 50 * 1024 * 1024, #TODO increase max bytes if needed
+        mqtt_buffer_max_events: int = 300,
+        mqtt_buffer_max_bytes: int = 5 * 1024 * 1024,
         hot_buffer_jpeg_quality: int = 70,
         hot_buffer_max_width: int = 960,
     ) -> None:
@@ -121,13 +41,18 @@ class Camera:
         self.hot_buffer_seconds = hot_buffer_seconds
         self.hot_buffer_fps = hot_buffer_fps
         self.hot_buffer_max_bytes = hot_buffer_max_bytes
+        self.mqtt_buffer_max_events = mqtt_buffer_max_events
+        self.mqtt_buffer_max_bytes = mqtt_buffer_max_bytes
         self.hot_buffer_jpeg_quality = hot_buffer_jpeg_quality
         self.hot_buffer_max_width = hot_buffer_max_width
 
         self.frame_buffer: FrameRingBuffer | None = None
+        self.mqtt_buffer = MqttEventRingBuffer(
+            max_events=self.mqtt_buffer_max_events,
+            max_bytes=self.mqtt_buffer_max_bytes,
+        )
         self._buffer_stop_event = threading.Event()
         self._buffer_thread: threading.Thread | None = None
-        self.ingestion_service = IngestionService()
         self.analysis_client = analysis_client
 
         self.init_recording(ffmpeg, segment_seconds)
@@ -152,29 +77,47 @@ class Camera:
         except Exception as e:
             print(f"[camera:{self.camera_id}][mqtt] invalid json: {e}")
             return
+        if not isinstance(data, dict):
+            print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
+            return
 
-        target_timestamp = datetime.fromisoformat(data["start_time"].replace("Z", "+00:00"))
+        target_timestamp = self._extract_event_timestamp(data)
+        self.mqtt_buffer.append(BufferedMqttEvent(timestamp=target_timestamp, payload=data))
+
         matched_frame = self.get_hot_buffer_frame_at(target_timestamp)
-        frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
-        analysis_response = self.analysis_client.query_description_open(
-            frame_b64,
-            image_mime="image/jpeg",
-        )
-        save_analysis(
-            created_at=target_timestamp,
-            description=analysis_response["description"],
-        )
+        if matched_frame is None:
+            print(f"[camera:{self.camera_id}][mqtt] no matching frame in hot buffer")
+            return
 
-       # raw_event = RawEvent(
-       #     raw=data,
-       #     received_at=datetime.now(timezone.utc),
-       #     source="live",
-       #     replay_seq=None,
-       #     replay_file=None,
-       # )
-       # ok = self.ingestion_service.handle_raw_event(raw_event)
-       # if not ok:
-       #     print(f"[camera:{self.camera_id}][mqtt] event skipped/invalid")
+        if self.analysis_client is None:
+            print(f"[camera:{self.camera_id}][mqtt] analysis_client is not configured")
+            return
+
+        try:
+            frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
+            analysis_response = self.analysis_client.query_description_open(
+                frame_b64,
+                image_mime="image/jpeg",
+            )
+            description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
+            if not description:
+                print(f"[camera:{self.camera_id}][mqtt] analysis returned no description")
+                return
+            save_analysis(
+                created_at=target_timestamp,
+                description=description,
+            )
+        except Exception as e:
+            print(f"[camera:{self.camera_id}][mqtt] analysis/save failed: {e}")
+
+    def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
+        start_time = payload.get("start_time")
+        if isinstance(start_time, str) and start_time.strip():
+            try:
+                return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            except ValueError:
+                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
+        return datetime.now(timezone.utc)
 
     def init_buffer(self) -> None:
         max_frames = self.hot_buffer_seconds * self.hot_buffer_fps
@@ -252,10 +195,35 @@ class Camera:
             return None
         return self.frame_buffer.search_frame(target_timestamp)
 
+    def get_mqtt_event_at(
+        self,
+        target_timestamp: datetime,
+        tolerance_ms: Optional[int] = None,
+    ) -> Optional[BufferedMqttEvent]:
+        return self.mqtt_buffer.search_event(target_timestamp, tolerance_ms=tolerance_ms)
+
+    def get_context_at(
+        self,
+        target_timestamp: datetime,
+        tolerance_ms: Optional[int] = 500,
+    ) -> Dict[str, Any]:
+        frame = self.get_hot_buffer_frame_at(target_timestamp)
+        mqtt_event = self.get_mqtt_event_at(target_timestamp, tolerance_ms=tolerance_ms)
+        return {
+            "target_timestamp": target_timestamp,
+            "frame": frame,
+            "mqtt_event": mqtt_event,
+            "frame_found": frame is not None,
+            "mqtt_found": mqtt_event is not None,
+        }
+
     def hot_buffer_stats(self) -> Dict[str, int]:
         if self.frame_buffer is None:
             return {"frames": 0, "bytes": 0, "max_frames": 0, "max_bytes": 0}
         return self.frame_buffer.stats()
+
+    def mqtt_buffer_stats(self) -> Dict[str, int]:
+        return self.mqtt_buffer.stats()
 
 #för testning av RTSP data (frames)
     def dump_latest_hot_buffer_frame(self, output_path: str = "debug_latest.jpg") -> bool:

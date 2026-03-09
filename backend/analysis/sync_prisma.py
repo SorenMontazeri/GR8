@@ -4,8 +4,39 @@ import os
 from dotenv import load_dotenv
 from utils import *
 
+
 class LLMClientSync:
+    """
+    Synchronous client for sending multimodal requests to a chat-completions API.
+
+    This client supports:
+    - generic prompt + image queries
+    - closed-set image classification using a fixed descriptor list
+    - open-ended structured image description with a JSON schema
+
+    Parameters:
+        endpoint (str): Full URL to the chat completions endpoint.
+        api_key (str): Bearer token used for authentication.
+        model (str): Model identifier sent in the request body.
+        timeout (float, optional): HTTP timeout in seconds. Defaults to 30.0.
+
+    Raises:
+        ValueError: If endpoint, api_key, or model is missing.
+    """
+
     def __init__(self, endpoint, api_key, model, timeout=30.0):
+        """
+        Initialize the synchronous LLM client.
+
+        Args:
+            endpoint (str): API endpoint URL.
+            api_key (str): Authentication token.
+            model (str): Model name to use for inference.
+            timeout (float, optional): Request timeout in seconds.
+
+        Raises:
+            ValueError: If any required constructor argument is empty or missing.
+        """
         if not endpoint:
             raise ValueError("endpoint is required")
         if not api_key:
@@ -25,6 +56,22 @@ class LLMClientSync:
         )
 
     def query(self, prompt, base64image):
+        """
+        Send a generic multimodal query containing text plus one base64-encoded image.
+
+        The image is sent as a data URL with MIME type `image/jpeg`.
+
+        Args:
+            prompt (str): User prompt to send to the model.
+            base64image (str): Base64-encoded image content.
+
+        Returns:
+            dict: Raw JSON response returned by the LLM endpoint.
+
+        Raises:
+            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
+            ValueError: If the endpoint returns invalid JSON.
+        """
         body = {
             "model": self.model,
             "messages": [
@@ -60,9 +107,34 @@ class LLMClientSync:
             return response.json()
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
-        
 
     def query_description_closed(self, base64image, descriptors, image_mime="image/jpeg"):
+        """
+        Analyze an image and return only keywords chosen from a fixed descriptor list.
+
+        This method requests a strict JSON-schema response with the shape:
+            {
+                "keywords": [...]
+            }
+
+        The model is instructed to:
+        - choose only from the supplied `descriptors`
+        - return an empty list if nothing applies
+        - avoid any additional fields
+
+        Args:
+            base64image (str): Base64-encoded image content.
+            descriptors (list[str]): Allowed descriptor labels.
+            image_mime (str, optional): MIME type of the encoded image.
+                Defaults to "image/jpeg".
+
+        Returns:
+            dict: Parsed structured response, typically produced by `parse_llm_response`.
+
+        Raises:
+            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
+            ValueError: If the endpoint returns invalid JSON.
+        """
         body = {
             "model": self.model,
             "messages": [
@@ -126,8 +198,31 @@ class LLMClientSync:
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
-    
+
     def query_description_open(self, base64image, image_mime="image/jpeg"):
+        """
+        Analyze an image and return a rich structured description.
+
+        This method asks the model to produce JSON matching a schema with:
+        - keywords
+        - scene tags
+        - objects
+        - high-level events with confidence scores
+        - per-person descriptions including inferred role, actions, held objects, and clothing
+        - a concise natural-language description
+
+        Args:
+            base64image (str): Base64-encoded image content.
+            image_mime (str, optional): MIME type of the encoded image.
+                Defaults to "image/jpeg".
+
+        Returns:
+            dict: Parsed structured response, typically produced by `parse_llm_response`.
+
+        Raises:
+            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
+            ValueError: If the endpoint returns invalid JSON.
+        """
         body = {
             "model": self.model,
             "messages": [
@@ -294,8 +389,14 @@ class LLMClientSync:
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
-        
+
     def close(self):
+        """
+        Close the underlying HTTP client.
+
+        This should be called when the instance is no longer needed
+        to release network resources cleanly.
+        """
         self.client.close()
 
 
@@ -307,7 +408,7 @@ def test_sync():
     descriptors = ["thief", "civilian", "human", "dog", "cat", "rat", "dark_clothed", "light_clothed"]
 
     llm = LLMClientSync(endpoint, api_key, model)
-    image = "soren.jpg"
+    image = "test.webp"
     base64_image = encode_image_to_base64(image)
 
 

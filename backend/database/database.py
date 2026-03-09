@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 import os, cv2, base64
 from datetime import datetime, timedelta
-import uvicorn
+
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
 RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), "recordings/1")
 app = FastAPI()
@@ -19,29 +19,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from datetime import datetime
 
 @app.get("/api/image/{name}")
 def get_image(name: str):
     ts = timestamp_from_description(name)
     if ts is None:
-        raise HTTPException(status_code=404, detail="No analysis entry")
+        raise HTTPException(status_code=404, detail="No timestamp for this description")
 
-    # Convert ISO string -> datetime
-    try:
-        ts_dt = datetime.fromisoformat(ts)
-    except ValueError:
-        raise HTTPException(status_code=500, detail="Invalid timestamp format")
-
-    try:
-        image_b64 = image_from_timestamp(ts_dt)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="No matching video")
-
-    return {
-        "name": name,
-        "image": image_b64,
-    }
+    t = datetime.fromisoformat(ts)
+    return {"name": name, "image": image_from_timestamp(t)}
 
 
 def create_database() -> None:
@@ -112,8 +98,3 @@ def image_from_timestamp(t, clip=10):
             pass
 
     raise FileNotFoundError("Ingen matchande video")
-
-if __name__ == "__main__":
-    #run this command 
-    uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=True)
-    

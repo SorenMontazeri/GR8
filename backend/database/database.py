@@ -22,6 +22,7 @@ app.add_middleware(
 
 @app.get("/api/image/{name}")
 def get_image(name: str):
+    #Hämtar en bild från en request från frontend. Indata är en tagg/description som söks på, och det returnar en bas64 sträng med bilden
     ts = timestamp_from_description(name)
     if ts is None:
         raise HTTPException(status_code=404, detail="No timestamp for this description")
@@ -31,6 +32,7 @@ def get_image(name: str):
 
 
 def create_database() -> None:
+    # Här kommer vi in om databasen vi vill lägga in något i inte finns. Isåfall vill vi göra ett nytt table så vi kan lägga in datan.
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -47,6 +49,7 @@ def create_database() -> None:
 
 
 def save_analysis(created_at: datetime, description: str) -> int:
+    # Sammanfattningen som kommer från analysdelen kallar på den här funktionen och sparar allt i ett table med datetime och keywords.
     create_database()
 
     conn = sqlite3.connect(DB_PATH)
@@ -61,6 +64,7 @@ def save_analysis(created_at: datetime, description: str) -> int:
 
 
 def timestamp_from_description(description: str) -> str | None:
+    # Hjälpfunktion som är det som faktiskt hämtar ut vilken datetime som hör till den desctiption som söks efter.
     create_database()
 
     conn = sqlite3.connect(DB_PATH)
@@ -78,6 +82,8 @@ def timestamp_from_description(description: str) -> str | None:
 
 
 def image_from_timestamp(t, clip=10):
+    # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen, 
+    # ta ut den framen som söks efter och konvertera den till bas64. 
     for f in os.listdir(RECORDINGS_DIR):
         try:
             s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4")
@@ -93,7 +99,6 @@ def image_from_timestamp(t, clip=10):
                 # Encode to JPEG in memory
                 _, buffer = cv2.imencode(".jpg", frame)
                 return base64.b64encode(buffer).decode("utf-8")
-
         except:
             pass
 

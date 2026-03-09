@@ -37,7 +37,7 @@ FÖR ATT KÖRA TESTET SMATTRA IN DETTA I TERMINALEN:
 cd GR8/backend
 RUN_RTSP_HOT_BUFFER_TEST=1 \
 RTSP_URL='rtsp://student:student@192.168.0.90/axis-media/media.amp' \
-python3 -m ingestion.tests.test_rtsp_hot_buffer_search_frame
+PYTHONPATH=. python3 -m unittest tests.ingestion_tests.test_ingestion_rtsp_hot_buffer_search_frame -v
 """
 
 import base64

@@ -1,5 +1,41 @@
 from __future__ import annotations
 
+"""
+Live camera ingestion tests.
+
+Kopplat till krav:
+- F01 "Systemet ska kunna ta emot metadata-strömmar via (HTTP/MQTT) i JSON-format enligt Axis-kameror."
+- F02 "Systemet ska kunna logga felaktig metadata (flagga för tom/dålig/ogiltig data)."
+- F07 "Systemet ska kunna skicka en JPEG-bild till Prisma API och ta emot en textbaserad beskrivning i JSON-format."
+
+Testnivå:
+- Enhetstest
+
+Varför testet finns:
+- Verifiera att on_message i live-flödet parser MQTT JSON och triggar ingest-logik.
+- Verifiera robust hantering av trasig/tom JSON utan krasch.
+- Verifiera att frame- och bytes-gränser i RTSP-hotbuffer följs.
+
+Vad testet verifierar:
+- Giltig payload -> analysanrop sker, save_analysis anropas och MQTT-event buffras.
+- Ogiltig/tom payload -> ingen analys/save och ingen krasch.
+- Ringbuffer respekterar max_frames och max_bytes.
+
+Förutsättningar:
+- Inga externa beroenden krävs under testkörning (stubbar används vid behov).
+
+Vad man ska titta efter i terminalen:
+1. Alla tester i filen passerar.
+2. Inga oväntade exceptions vid invalid JSON-fall.
+
+Vad man ska titta efter i filsystemet / systemet:
+- Inga filer behöver skapas för detta test.
+
+För att köra testet:
+cd GR8/backend
+python3 -m pytest tests/ingestion_tests/test_ingestion_live_camera.py -v
+"""
+
 import importlib.util
 import json
 import sys
@@ -8,19 +44,29 @@ import unittest
 from datetime import datetime, timezone
 
 
+def _module_missing(name: str) -> bool:
+    if name in sys.modules:
+        return False
+    try:
+        return importlib.util.find_spec(name) is None
+    except ValueError:
+        # Some stubbed modules may exist with __spec__ = None.
+        return False
+
+
 def _ensure_stub_modules() -> None:
-    if importlib.util.find_spec("cv2") is None:
+    if _module_missing("cv2"):
         cv2 = types.ModuleType("cv2")
         cv2.IMWRITE_JPEG_QUALITY = 1
         cv2.INTER_AREA = 3
         sys.modules["cv2"] = cv2
 
-    if importlib.util.find_spec("imageio_ffmpeg") is None:
+    if _module_missing("imageio_ffmpeg"):
         imageio_ffmpeg = types.ModuleType("imageio_ffmpeg")
         imageio_ffmpeg.get_ffmpeg_exe = lambda: "ffmpeg"
         sys.modules["imageio_ffmpeg"] = imageio_ffmpeg
 
-    if importlib.util.find_spec("paho") is None:
+    if _module_missing("paho"):
         paho = types.ModuleType("paho")
         mqtt_pkg = types.ModuleType("paho.mqtt")
         mqtt_client_mod = types.ModuleType("paho.mqtt.client")

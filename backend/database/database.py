@@ -51,12 +51,12 @@ def create_database() -> None:
 def save_analysis(created_at: datetime, description: str) -> int:
     # Sammanfattningen som kommer från analysdelen kallar på den här funktionen och sparar allt i ett table med datetime och keywords.
     create_database()
-
+    rows = [(created_at.isoformat(), d) for d in description]
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute(
+    cur.executemany(
         "INSERT INTO analysis (created_at, description) VALUES (?, ?);",
-        (created_at.isoformat(), description),
+        rows
     )
     conn.commit()
     row_id = cur.lastrowid

@@ -95,8 +95,9 @@ class Camera:
 
         try:
             frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
-            analysis_response = self.analysis_client.query_description_open(
+            analysis_response = self.analysis_client.query_description_closed(
                 frame_b64,
+                ["white_clothes", "man", "woman", "gray_clothes", "green_clothes"],
                 image_mime="image/jpeg",
             )
             description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
@@ -105,7 +106,7 @@ class Camera:
                 return
             save_analysis(
                 created_at=target_timestamp,
-                description=description,
+                description=description["keywords"],
             )
         except Exception as e:
             print(f"[camera:{self.camera_id}][mqtt] analysis/save failed: {e}")

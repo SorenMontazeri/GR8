@@ -1,5 +1,38 @@
 from __future__ import annotations
 
+"""
+MQTT + RTSP context matching tests.
+
+Kopplat till krav:
+- F04 "Systemet ska synkronisera inkommande metadata med tillhörande bildrutor baserat på tidstämplar."
+- F08 "Logik för att hämta högupplösta bildrutor från videoströmmen som matchar tidpunkten för objektets snapshot."
+
+Testnivå:
+- Enhetstest
+
+Varför testet finns:
+- Verifiera timestamp-matchning i MQTT-hotbuffer.
+- Verifiera att Camera.get_context_at returnerar samlad kontext (frame + event) när data finns inom tolerans.
+
+Vad testet verifierar:
+- search_event hittar närmaste MQTT-event inom tolerans och missar utanför tolerans.
+- get_context_at kan returnera både frame och MQTT-event vid match.
+- get_context_at returnerar frame utan MQTT-match när event ligger för långt bort i tid.
+
+Förutsättningar:
+- Inga externa beroenden krävs under testkörning (stubbar används vid behov).
+
+Vad man ska titta efter i terminalen:
+1. Alla tester i filen passerar.
+
+Vad man ska titta efter i filsystemet / systemet:
+- Inga filer behöver skapas för detta test.
+
+För att köra testet:
+cd GR8/backend
+python3 -m pytest tests/ingestion_tests/test_ingestion_mqtt_context_matching.py -v
+"""
+
 import importlib.util
 import sys
 import types
@@ -10,19 +43,29 @@ from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRing
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 
 
+def _module_missing(name: str) -> bool:
+    if name in sys.modules:
+        return False
+    try:
+        return importlib.util.find_spec(name) is None
+    except ValueError:
+        # Some stubbed modules may exist with __spec__ = None.
+        return False
+
+
 def _ensure_stub_modules() -> None:
-    if importlib.util.find_spec("cv2") is None:
+    if _module_missing("cv2"):
         cv2 = types.ModuleType("cv2")
         cv2.IMWRITE_JPEG_QUALITY = 1
         cv2.INTER_AREA = 3
         sys.modules["cv2"] = cv2
 
-    if importlib.util.find_spec("imageio_ffmpeg") is None:
+    if _module_missing("imageio_ffmpeg"):
         imageio_ffmpeg = types.ModuleType("imageio_ffmpeg")
         imageio_ffmpeg.get_ffmpeg_exe = lambda: "ffmpeg"
         sys.modules["imageio_ffmpeg"] = imageio_ffmpeg
 
-    if importlib.util.find_spec("paho") is None:
+    if _module_missing("paho"):
         paho = types.ModuleType("paho")
         mqtt_pkg = types.ModuleType("paho.mqtt")
         mqtt_client_mod = types.ModuleType("paho.mqtt.client")

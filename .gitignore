@@ -1,3 +1,4 @@
+# Soren
 api_key.txt
 __pycache__/
 venv/
@@ -7,7 +8,10 @@ venv/
 recordings/
 database/recordings/
 .DS_Store
-
+backend/analysis/test.json
+backend/analysis/test.webp
+backend/analysis/test1.json
+backend/analysis/test2.json
 # Created by https://www.toptal.com/developers/gitignore/api/node
 # Edit at https://www.toptal.com/developers/gitignore?templates=node
 

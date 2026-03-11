@@ -9,7 +9,7 @@ import os, cv2, base64
 from datetime import datetime, timedelta
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
-RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), "recordings/1")
+RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
 app = FastAPI()
 
 app.add_middleware(

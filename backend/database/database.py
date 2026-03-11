@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import base64
+import uvicorn
 from pathlib import Path
 import sqlite3
 from pathlib import Path
@@ -103,3 +104,6 @@ def image_from_timestamp(t, clip=10):
             pass
 
     raise FileNotFoundError("Ingen matchande video")
+
+if __name__ == "__main__":
+    uvicorn.run("database:app", reload=True)

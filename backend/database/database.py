@@ -7,9 +7,11 @@ import sqlite3
 from pathlib import Path
 import os, cv2, base64
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
 RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
+RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 app = FastAPI()
 
 app.add_middleware(
@@ -29,7 +31,10 @@ def get_image(name: str):
         raise HTTPException(status_code=404, detail="No timestamp for this description")
 
     t = datetime.fromisoformat(ts)
-    return {"name": name, "image": image_from_timestamp(t)}
+    try:
+        return {"name": name, "image": image_from_timestamp(t)}
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 def create_database() -> None:
@@ -86,13 +91,24 @@ def timestamp_from_description(description: str) -> str | None:
 def image_from_timestamp(t, clip=10):
     # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen, 
     # ta ut den framen som söks efter och konvertera den till bas64. 
-    for f in os.listdir(RECORDINGS_DIR):
+    local_t = t.astimezone(RECORDINGS_TZ) if t.tzinfo is not None else t.replace(tzinfo=RECORDINGS_TZ)
+
+    if not os.path.isdir(RECORDINGS_DIR):
+        message = (
+            f"Ingen matchande video: recordings directory does not exist "
+            f"(dir={RECORDINGS_DIR}, timestamp={local_t.isoformat()})"
+        )
+        print(f"[database] {message}")
+        raise FileNotFoundError(message)
+
+    filenames = sorted(os.listdir(RECORDINGS_DIR))
+    for f in filenames:
         try:
-            s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4")
-            if s <= t < s + timedelta(seconds=clip):
+            s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
+            if s <= local_t < s + timedelta(seconds=clip):
                 p = os.path.join(RECORDINGS_DIR, f)
                 cap = cv2.VideoCapture(p)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int((t - s).total_seconds() * cap.get(cv2.CAP_PROP_FPS)))
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int((local_t - s).total_seconds() * cap.get(cv2.CAP_PROP_FPS)))
                 ok, frame = cap.read()
                 cap.release()
                 if not ok:
@@ -101,10 +117,16 @@ def image_from_timestamp(t, clip=10):
                 # Encode to JPEG in memory
                 _, buffer = cv2.imencode(".jpg", frame)
                 return base64.b64encode(buffer).decode("utf-8")
-        except:
-            pass
+        except ValueError:
+            continue
 
-    raise FileNotFoundError("Ingen matchande video")
+    sample_files = ", ".join(filenames[:5]) if filenames else "no files found"
+    message = (
+        f"Ingen matchande video for timestamp {local_t.isoformat()} in {RECORDINGS_DIR}. "
+        f"Checked {len(filenames)} file(s). Sample: {sample_files}"
+    )
+    print(f"[database] {message}")
+    raise FileNotFoundError(message)
 
 if __name__ == "__main__":
     uvicorn.run("database:app", reload=True)

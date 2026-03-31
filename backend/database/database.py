@@ -387,7 +387,7 @@ def save_description_bundle(
         created_at=created_at,
         timestamps=uniform_timestamps,
         llm_description=uniform_llm_description,
-        description_embedding=create_embedding(uniform_embedding),
+        description_embedding=normalize_text(uniform_llm_description),
     )
     varied_id = save_sequence_description_varied(
         timestamp_start=start_iso,
@@ -395,19 +395,19 @@ def save_description_bundle(
         created_at=created_at,
         timestamps=varied_timestamps,
         llm_description=varied_llm_description,
-        description_embedding=create_embedding(varied_embedding),
+        description_embedding=normalize_text(varied_llm_description),
     )
     snapshot_id = save_snapshot_description(
         timestamp=snapshot_timestamp,
         created_at=created_at,
         llm_description=snapshot_llm_description,
-        description_embedding=create_embedding(snapshot_embedding),
+        description_embedding=normalize_text(snapshot_llm_description),
     )
     full_frame_id = save_full_frame_description(
         timestamp=full_frame_timestamp,
         created_at=created_at,
         llm_description=full_frame_llm_description,
-        description_embedding=create_embedding(full_frame_embedding),
+        description_embedding=normalize_text(full_frame_llm_description),
     )
     group_id = save_description_group(
         timestamp_start=start_iso,
@@ -506,7 +506,7 @@ def jaccard_similarity(set_a: set, set_b: set) -> float:
     if union == 0:
         return 0.0
     return inter / union
-    
+
 def score(norm_query, query_tokens, query_token_set, query_trigrams, norm_desc: str) -> float:
     if not norm_query or not norm_desc:
         return 0.0

@@ -97,12 +97,20 @@ class SimulatedCamera:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a simulated live camera scenario.")
     parser.add_argument("--video", required=True, help="Path to scenario MP4 video.")
-    parser.add_argument("--events", help="Path to scenario JSONL events.")
+    parser.add_argument("--events", help="Path to scenario JSONL events or raw live MQTT JSONL.")
     parser.add_argument("--camera-id", required=True, help="Camera id used for MQTT topic.")
     parser.add_argument("--broker-host", help="MQTT broker host.")
     parser.add_argument("--broker-port", type=int, default=1883, help="MQTT broker port.")
     parser.add_argument("--rtsp-publish-url", required=True, help="RTSP publish URL on the RTSP server.")
     parser.add_argument("--warmup-seconds", type=float, default=2.0, help="Delay before MQTT replay starts.")
+    parser.add_argument(
+        "--auto-filter-events",
+        action="store_true",
+        help=(
+            "Treat --events as a larger raw JSONL stream and automatically keep only events "
+            "that fall within the recorded video's inferred time window."
+        ),
+    )
     parser.add_argument(
         "--loop",
         action="store_true",
@@ -131,7 +139,22 @@ def main() -> None:
             parser.error("--events is required unless --no-mqtt is used.")
         if not args.broker_host:
             parser.error("--broker-host is required unless --no-mqtt is used.")
-        scenario = load_scenario(args.video, args.events)
+        scenario = load_scenario(args.video, args.events, auto_filter_events=args.auto_filter_events)
+        if scenario.video_window is not None:
+            print(
+                "Scenario prepared:",
+                f"video_window={scenario.video_window.start.isoformat()}->{scenario.video_window.end.isoformat()}",
+                f"events_loaded={scenario.total_events_loaded}",
+                f"events_selected={len(scenario.events)}",
+                f"auto_filtered={scenario.auto_filtered}",
+            )
+        else:
+            print(
+                "Scenario prepared:",
+                f"events_loaded={scenario.total_events_loaded}",
+                f"events_selected={len(scenario.events)}",
+                f"auto_filtered={scenario.auto_filtered}",
+            )
 
     simulator = SimulatedCamera(
         video_path=args.video,

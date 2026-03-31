@@ -109,12 +109,13 @@ class Camera:
         try:
             frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
 
-            analysis_response = self.analysis_client.query_description_closed(
+            analysis_response = self.analysis_client.query_description_open(
                 frame_b64,
-                ["white_clothes", "man", "woman", "gray_clothes", "green_clothes", "black_clothes", "glasses", "blue_jeans", "brown_pants", "t_shirt"],
                 image_mime="image/jpeg",
             )
-            print(analysis_response["keywords"])
+            print("here")
+            print(analysis_response["description"])
+            #print(analysis_response["keywords"])
             # description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
             # if not description:
             #     print(f"[camera:{self.camera_id}][mqtt] analysis returned no description")

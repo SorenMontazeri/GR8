@@ -394,6 +394,11 @@ class LLMClientSync:
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
+        
+    def query_description_sequence(self, base64image, image_mime="image/jpeg"):
+        pass
+
+
 
     def close(self):
         """
@@ -403,7 +408,6 @@ class LLMClientSync:
         to release network resources cleanly.
         """
         self.client.close()
-
 
 def test_sync():
     load_dotenv()

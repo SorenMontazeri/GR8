@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import threading
 import time
+import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Sequence
 import os
@@ -38,19 +39,19 @@ DEFAULT_ANALYSIS_DESCRIPTORS = [
     "green_clothes",
 ]
 
-DEFAULT_ANALYSIS_TARGET_SAMPLES = 10
+DEFAULT_ANALYSIS_SAMPLE_RATIO = 0.10
 DEFAULT_MIN_ANALYSIS_INTERVAL_SECONDS = 1.0
 
 
 def calculate_adaptive_analysis_interval_seconds(
     total_duration_seconds: float,
     *,
-    target_samples: int = DEFAULT_ANALYSIS_TARGET_SAMPLES,
+    sample_ratio: float = DEFAULT_ANALYSIS_SAMPLE_RATIO,
     min_interval_seconds: float = DEFAULT_MIN_ANALYSIS_INTERVAL_SECONDS,
 ) -> float:
-    """Spread analysis over a duration while never sampling faster than the minimum interval."""
-    if target_samples <= 0:
-        raise ValueError("target_samples must be greater than 0")
+    """Analyze a literal percentage of a duration, but never faster than the minimum interval."""
+    if sample_ratio <= 0 or sample_ratio > 1:
+        raise ValueError("sample_ratio must be in the interval (0, 1]")
     if min_interval_seconds <= 0:
         raise ValueError("min_interval_seconds must be greater than 0")
 
@@ -58,7 +59,8 @@ def calculate_adaptive_analysis_interval_seconds(
     if total_duration <= 0:
         return float(min_interval_seconds)
 
-    return max(total_duration / float(target_samples), float(min_interval_seconds))
+    requested_samples = max(1, math.ceil(total_duration * sample_ratio))
+    return max(total_duration / float(requested_samples), float(min_interval_seconds))
 
 
 class Camera:
@@ -81,13 +83,13 @@ class Camera:
         analysis_mode: AnalysisMode = "matched_frame",
         analysis_interval_seconds: float = 5.0,
         analysis_descriptors: Optional[Sequence[str]] = None,
-        analysis_target_samples: int = DEFAULT_ANALYSIS_TARGET_SAMPLES,
+        analysis_sample_ratio: float = DEFAULT_ANALYSIS_SAMPLE_RATIO,
         min_analysis_interval_seconds: float = DEFAULT_MIN_ANALYSIS_INTERVAL_SECONDS,
     ) -> None:
         if analysis_mode not in {"matched_frame", "snapshot", "periodic_frame"}:
             raise ValueError(f"Unsupported analysis_mode={analysis_mode!r}")
-        if analysis_target_samples <= 0:
-            raise ValueError("analysis_target_samples must be greater than 0")
+        if analysis_sample_ratio <= 0 or analysis_sample_ratio > 1:
+            raise ValueError("analysis_sample_ratio must be in the interval (0, 1]")
         if min_analysis_interval_seconds <= 0:
             raise ValueError("min_analysis_interval_seconds must be greater than 0")
 
@@ -104,7 +106,7 @@ class Camera:
         self.hot_buffer_jpeg_quality = hot_buffer_jpeg_quality
         self.hot_buffer_max_width = hot_buffer_max_width
         self.analysis_mode = analysis_mode
-        self.analysis_target_samples = int(analysis_target_samples)
+        self.analysis_sample_ratio = float(analysis_sample_ratio)
         self.min_analysis_interval_seconds = float(min_analysis_interval_seconds)
         self.analysis_interval_seconds = max(
             float(analysis_interval_seconds),
@@ -296,7 +298,7 @@ class Camera:
     def configure_periodic_analysis_from_duration(self, total_duration_seconds: float) -> float:
         self.analysis_interval_seconds = calculate_adaptive_analysis_interval_seconds(
             total_duration_seconds,
-            target_samples=self.analysis_target_samples,
+            sample_ratio=self.analysis_sample_ratio,
             min_interval_seconds=self.min_analysis_interval_seconds,
         )
         return self.analysis_interval_seconds

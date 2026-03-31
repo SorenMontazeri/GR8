@@ -58,7 +58,7 @@ Om ni vill bygga ut detta vidare är tre naturliga analyslägen:
 - `periodic_frame`
   - analyserar senaste frame i hot buffer med ett fast intervall, till exempel var 5:e sekund
   - användbart när analys inte ska vara beroende av att ett MQTT-event kommer exakt samtidigt
-  - intervallet kan också räknas ut från total speltid, till exempel `duration / 10`, men aldrig snabbare än en analys per sekund
+  - intervallet kan också räknas ut från en bokstavlig sample ratio, till exempel `10%` av ett scenario, men aldrig snabbare än en analys per sekund
 
 En bra struktur för detta är att låta alla lägen dela samma analysväg:
 - välj bildkälla först

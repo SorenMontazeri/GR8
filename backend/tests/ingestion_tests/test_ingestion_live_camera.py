@@ -126,6 +126,20 @@ class _SpyAnalysisClient:
     def __init__(self) -> None:
         self.calls = []
 
+    def query_description_open(
+        self,
+        image_b64: str,
+        image_mime: str = "image/jpeg",
+    ) -> dict:
+        self.calls.append(
+            {
+                "image_b64": image_b64,
+                "image_mime": image_mime,
+            }
+        )
+        return {"description": "stub-description", "keywords": ["stub-keyword"]}
+
+    # Keep backward compatibility in the test double in case older code paths are exercised.
     def query_description_closed(
         self,
         image_b64: str,
@@ -139,7 +153,7 @@ class _SpyAnalysisClient:
                 "image_mime": image_mime,
             }
         )
-        return {"keywords": ["stub-keyword"]}
+        return {"description": "stub-description", "keywords": ["stub-keyword"]}
 
 class CameraOnMessageTests(unittest.TestCase):
     def setUp(self) -> None:

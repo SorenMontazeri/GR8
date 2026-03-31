@@ -9,6 +9,11 @@ import os, cv2, base64
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import math
+import re
+import unicodedata
+from collections import Counter
+
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
 RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
@@ -128,5 +133,35 @@ def image_from_timestamp(t, clip=10):
     print(f"[database] {message}")
     raise FileNotFoundError(message)
 
+def normalize_description(description):
+    description = description.lower()
+    description = unicodedata.normalize("NFKD", description)
+    description = "".join(ch for ch in description if not unicodedata.combining(ch))
+    description = re.sub(r"[^a-z0-9\s]", " ", description)
+    description = re.sub(r"\s+", " ", description).strip()
+    return description
+
+def tokenize(description: str):
+    return normalize_description(description).split()
+
+def char_ngrams(text: str, n: int = 3):
+    text = normalize_description(text)
+    compact = text.replace(" ", "_")
+    if len(compact) < n:
+        return [compact] if compact else []
+    return [compact[i:i+n] for i in range(len(compact) - n + 1)]
+
+def cosine_similarity(counter_a: Counter, counter_b: Counter) -> float:
+    if not counter_a or not counter_b:
+        return 0.0
+
+    dot = sum(counter_a[k] * counter_b.get(k, 0) for k in counter_a)
+    norm_a = math.sqrt(sum(v * v for v in counter_a.values()))
+    norm_b = math.sqrt(sum(v * v for v in counter_b.values()))
+
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+
+    return dot / (norm_a * norm_b)
 if __name__ == "__main__":
     uvicorn.run("database:app", reload=True)

@@ -466,19 +466,19 @@ def image_from_timestamp(t, clip=10):
     print(f"[database] {message}")
     raise FileNotFoundError(message)
 
-def normalize_description(description):
-    description = description.lower()
-    description = unicodedata.normalize("NFKD", description)
-    description = "".join(ch for ch in description if not unicodedata.combining(ch))
-    description = re.sub(r"[^a-z0-9\s]", " ", description)
-    description = re.sub(r"\s+", " ", description).strip()
-    return description
+def normalize_text(text: str) -> str:
+    text = text.lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-def tokenize(description: str):
-    return normalize_description(description).split()
+def tokenize(text: str):
+    return text.split()
 
 def char_ngrams(text: str, n: int = 3):
-    text = normalize_description(text)
+    text = normalize_text(text)
     compact = text.replace(" ", "_")
     if len(compact) < n:
         return [compact] if compact else []
@@ -496,5 +496,55 @@ def cosine_similarity(counter_a: Counter, counter_b: Counter) -> float:
         return 0.0
 
     return dot / (norm_a * norm_b)
+
+
+def jaccard_similarity(set_a: set, set_b: set) -> float:
+    if not set_a or not set_b:
+        return 0.0
+    inter = len(set_a & set_b)
+    union = len(set_a | set_b)
+    if union == 0:
+        return 0.0
+    return inter / union
+    
+def score(norm_query, query_tokens, query_token_set, query_trigrams, norm_desc: str) -> float:
+    if not norm_query or not norm_desc:
+        return 0.0
+
+    desc_tokens = tokenize(norm_desc)
+    desc_token_set = set(desc_tokens)
+
+    # Tar snittet på antalet gemensama ord. query_token_set = {"server", "problem"}
+    #desc_token_set = {"server", "startade", "om"} 
+    # 1 gemensamt ord, 4 olika ord, 1/4 = 0.25
+    token_jaccard = jaccard_similarity(query_token_set, desc_token_set)
+    
+    # Ger poäng på ord som är lika stavade
+    desc_trigrams = Counter(char_ngrams(norm_desc, 3))
+    trigram_cos = cosine_similarity(query_trigrams, desc_trigrams)
+    
+    # Ger extra poäng ifall hela söktexten finns i description
+    substring_bonus = 0.25 if norm_query in norm_desc else 0.0
+
+    # Ge extra poäng om query tokens är prefix till ord i description. Serv get poäng om server finns
+    prefix_bonus = 0.0
+    for qtok in query_tokens:
+        if any(dtok.startswith(qtok) for dtok in desc_tokens):
+            prefix_bonus += 0.05
+
+    exact_token_bonus = 0.0
+    # Ge extra poäng ifall ord finns i både query och description
+    common_tokens = query_token_set & desc_token_set
+    if common_tokens:
+        exact_token_bonus = min(0.2, 0.05 * len(common_tokens))
+
+    return (
+        0.45 * trigram_cos +
+        0.35 * token_jaccard +
+        substring_bonus +
+        prefix_bonus +
+        exact_token_bonus
+    )
+
 if __name__ == "__main__":
     uvicorn.run("database:app", reload=True)

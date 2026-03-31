@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import base64
 import json
 import os
@@ -29,6 +30,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+FEEDBACK_TABLES = {
+    "uniform": "sequence_description_uniform",
+    "varied": "sequence_description_varied",
+    "snapshot": "snapshot_description",
+    "full_frame": "full_frame_description",
+}
+
+
+class FeedbackRequest(BaseModel):
+    description_type: str
+    id: int
+    vote: str  # like / dislike
+
 
 @app.get("/api/image/{name}")
 def get_image(name: str):
@@ -41,6 +55,36 @@ def get_image(name: str):
         return {"name": name, "image": image_from_timestamp(t)}
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/api/feedback", status_code=204)
+def post_feedback(payload: FeedbackRequest):
+    vote = payload.vote.strip().lower()
+    if vote not in ("like", "dislike"):
+        raise HTTPException(status_code=400, detail="vote must be 'like' or 'dislike'")
+
+    feedback_value = 1 if vote == "like" else -1
+    update_feedback(payload.description_type, payload.id, feedback_value)
+
+
+def update_feedback(description_type: str, item_id: int, feedback_value: int) -> None:
+    table = FEEDBACK_TABLES.get(description_type.strip().lower())
+    if table is None:
+        raise HTTPException(
+            status_code=400,
+            detail="description_type must be one of: uniform, varied, snapshot, full_frame",
+        )
+
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {table} SET feedback = ? WHERE id = ?;", (feedback_value, item_id))
+    conn.commit()
+    updated = cur.rowcount
+    conn.close()
+
+    if updated == 0:
+        raise HTTPException(status_code=404, detail=f"No row found with id={item_id} in {table}")
 
 
 def create_database() -> None:

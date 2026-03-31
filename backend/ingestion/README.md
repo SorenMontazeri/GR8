@@ -42,6 +42,34 @@ Replay-vägen använder `ingestion_service.py` med validering/mappning.
 - MQTT hot buffer (event-ringbuffer)
 - analysanrop + persistens (`save_analysis`) när context hittas
 
+### Möjliga analyslägen
+
+Nuvarande live-beteende i `camera.py` är:
+- MQTT-event -> närmaste frame i RTSP hot buffer -> analys -> `save_analysis(...)`
+
+Om ni vill bygga ut detta vidare är tre naturliga analyslägen:
+
+- `matched_frame`
+  - nuvarande beteende
+  - hämtar närmaste frame i RTSP hot buffer baserat på eventets timestamp
+- `snapshot`
+  - använder Axis snapshot direkt från MQTT-payloaden, typiskt `payload["image"]["data"]`
+  - bra när man vill analysera den lilla, fokuserade delbilden istället för hela scenen
+- `periodic_frame`
+  - analyserar senaste frame i hot buffer med ett fast intervall, till exempel var 5:e sekund
+  - användbart när analys inte ska vara beroende av att ett MQTT-event kommer exakt samtidigt
+  - intervallet kan också räknas ut från total speltid, till exempel `duration / 10`, men aldrig snabbare än en analys per sekund
+
+En bra struktur för detta är att låta alla lägen dela samma analysväg:
+- välj bildkälla först
+- skicka bilden till samma analysclient
+- normalisera svaret till sökbara termer/keywords
+- spara via `save_analysis(...)`
+
+Obs:
+- Replay-vägen i `ingestion_service.py` och `normalization/mapper.py` sparar idag inte hela snapshot-bilden i `InternalEvent`
+- om snapshot-analys även ska fungera i replay behöver analysen ske före normalisering, eller så måste snapshot-data/referens bevaras
+
 ### Hot buffer
 
 Hot buffern består av:

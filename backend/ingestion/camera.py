@@ -1,14 +1,27 @@
 from __future__ import annotations
 import base64
 import json
+from pathlib import Path
+import sys
 import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import os
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - optional in thin test envs
+    def load_dotenv() -> bool:
+        return False
+
 
 import cv2
 import imageio_ffmpeg
 import paho.mqtt.client as mqtt
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from database.database import save_analysis
 from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
@@ -95,18 +108,20 @@ class Camera:
 
         try:
             frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
+
             analysis_response = self.analysis_client.query_description_closed(
                 frame_b64,
-                ["white_clothes", "man", "woman", "gray_clothes", "green_clothes"],
+                ["white_clothes", "man", "woman", "gray_clothes", "green_clothes", "black_clothes", "glasses", "blue_jeans", "brown_pants", "t_shirt"],
                 image_mime="image/jpeg",
             )
-            description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
-            if not description:
-                print(f"[camera:{self.camera_id}][mqtt] analysis returned no description")
-                return
+            print(analysis_response["keywords"])
+            # description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
+            # if not description:
+            #     print(f"[camera:{self.camera_id}][mqtt] analysis returned no description")
+            #     return
             save_analysis(
                 created_at=target_timestamp,
-                description=description["keywords"],
+                description=analysis_response["keywords"],
             )
         except Exception as e:
             print(f"[camera:{self.camera_id}][mqtt] analysis/save failed: {e}")
@@ -115,9 +130,13 @@ class Camera:
         start_time = payload.get("start_time")
         if isinstance(start_time, str) and start_time.strip():
             try:
-                return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(start_time.strip().replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc)
             except ValueError:
                 print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
+
         return datetime.now(timezone.utc)
 
     def init_buffer(self) -> None:
@@ -258,6 +277,9 @@ class Camera:
 
 
 def main() -> None:
+    from analysis.sync_prisma import LLMClientSync
+
+    load_dotenv()
     camera_ip = "192.168.0.90"
     username = "student"
     password = "student"
@@ -266,12 +288,18 @@ def main() -> None:
 
     broker_host = "10.255.255.1"
     broker_port = 1883
-
-    camera = Camera("1", rtsp_url, ffmpeg, broker_host, broker_port, segment_seconds=20)
     
-    time.sleep(10)
-    print("Hot buffer stats:", camera.hot_buffer_stats())
-    camera.dump_latest_hot_buffer_frame("debug_latest.jpg")
+    endpoint = "https://api.ai.auth.axis.cloud/v1/chat/completions"
+    api_key = os.environ.get("FACADE_API_KEY")
+    model = "prisma_gemini_pro"
+
+    llm = LLMClientSync(endpoint, api_key, model)
+
+    camera = Camera("1", rtsp_url, ffmpeg, broker_host, broker_port,analysis_client=llm, segment_seconds=10)
+    
+    time.sleep(60)
+    #print("Hot buffer stats:", camera.hot_buffer_stats())
+    #camera.dump_latest_hot_buffer_frame("debug_latest.jpg")
 
     camera.stop_recording()
 

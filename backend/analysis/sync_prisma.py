@@ -2,7 +2,10 @@ import json
 import httpx
 import os
 from dotenv import load_dotenv
-from utils import *
+try:
+    from .utils import *
+except ImportError:
+    from utils import *
 
 
 class LLMClientSync:
@@ -109,6 +112,7 @@ class LLMClientSync:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
 
     def query_description_closed(self, base64image, descriptors, image_mime="image/jpeg"):
+        print("sending")
         """
         Analyze an image and return only keywords chosen from a fixed descriptor list.
 
@@ -195,6 +199,7 @@ class LLMClientSync:
             raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
 
         try:
+            print("sent")
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
@@ -413,6 +418,7 @@ def test_sync():
 
 
     response1 = llm.query_description_closed(base64_image, descriptors, image_mime="image/webp" )
+    print(response1["keywords"])
     response2 = llm.query_description_open(base64_image, image_mime="image/webp" )
 
     with open("test1.json", "w", encoding="utf-8") as f:

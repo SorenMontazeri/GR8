@@ -114,23 +114,60 @@ def _probe_video_duration_ms_ffmpeg(video: Path) -> int | None:
     return total_ms if total_ms > 0 else None
 
 
-def _filter_events_to_video_window(
-    video: Path,
-    timed_events: List[tuple[datetime, Dict[str, Any]]],
-) -> List[tuple[datetime, Dict[str, Any]]]:
+@dataclass(frozen=True)
+class VideoTimeWindow:
+    start: datetime
+    end: datetime
+    duration_ms: int
+
+
+def _infer_video_time_window(video: Path, target_tz) -> VideoTimeWindow | None:
     video_start = _infer_video_start_from_name(video)
     video_duration_ms = _probe_video_duration_ms(video)
     if video_start is None or video_duration_ms is None:
-        return timed_events
+        return None
 
-    video_start = video_start.astimezone(timed_events[0][0].tzinfo)
-    video_end = video_start + timedelta(milliseconds=video_duration_ms)
+    localized_start = video_start.astimezone(target_tz)
+    return VideoTimeWindow(
+        start=localized_start,
+        end=localized_start + timedelta(milliseconds=video_duration_ms),
+        duration_ms=video_duration_ms,
+    )
+
+
+def _filter_events_to_video_window(
+    video: Path,
+    timed_events: List[tuple[datetime, Dict[str, Any]]],
+    *,
+    require_match: bool = False,
+) -> tuple[List[tuple[datetime, Dict[str, Any]]], VideoTimeWindow | None, int]:
+    if not timed_events:
+        return timed_events, None, 0
+
+    video_window = _infer_video_time_window(video, timed_events[0][0].tzinfo)
+    if video_window is None:
+        if require_match:
+            raise ValueError(
+                "Could not infer video time window from filename and duration. "
+                "Expected a file named like DYYYY-MM-DD-THH-MM-SS.mp4 and a readable MP4 duration."
+            )
+        return timed_events, None, 0
+
     filtered = [
         (ts, payload)
         for ts, payload in timed_events
-        if video_start <= ts < video_end
+        if video_window.start <= ts < video_window.end
     ]
-    return filtered or timed_events
+    if not filtered:
+        if require_match:
+            raise ValueError(
+                "No MQTT events matched the inferred video time window. "
+                f"window_start={video_window.start.isoformat()} "
+                f"window_end={video_window.end.isoformat()} "
+                f"video={video}"
+            )
+        return timed_events, video_window, 0
+    return filtered, video_window, len(filtered)
 
 
 def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
@@ -164,6 +201,10 @@ class Scenario:
     video_path: Path
     events_path: Path
     events: List[ScenarioEvent]
+    total_events_loaded: int
+    filtered_events_loaded: int
+    auto_filtered: bool
+    video_window: VideoTimeWindow | None
 
     @property
     def duration_ms(self) -> int:
@@ -172,7 +213,19 @@ class Scenario:
         return self.events[-1].offset_ms
 
 
-def load_scenario(video_path: str | Path, events_path: str | Path) -> Scenario:
+def load_scenario(
+    video_path: str | Path,
+    events_path: str | Path,
+    *,
+    auto_filter_events: bool = False,
+) -> Scenario:
+    """Load simulator input as a replayable scenario.
+
+    When auto_filter_events is enabled, the events file may be a larger raw
+    live JSONL capture. In that mode the loader infers the video's time window
+    from the recording filename and video duration, then keeps only the MQTT
+    events that fall within that window.
+    """
     video = Path(video_path)
     events_file = Path(events_path)
 
@@ -196,7 +249,12 @@ def load_scenario(video_path: str | Path, events_path: str | Path) -> Scenario:
         timed_events.append((original_ts, payload))
 
     timed_events.sort(key=lambda item: item[0])
-    timed_events = _filter_events_to_video_window(video, timed_events)
+    total_events_loaded = len(timed_events)
+    timed_events, video_window, filtered_events_loaded = _filter_events_to_video_window(
+        video,
+        timed_events,
+        require_match=auto_filter_events,
+    )
     base_ts = timed_events[0][0]
 
     events: List[ScenarioEvent] = []
@@ -212,4 +270,12 @@ def load_scenario(video_path: str | Path, events_path: str | Path) -> Scenario:
             )
         )
 
-    return Scenario(video_path=video, events_path=events_file, events=events)
+    return Scenario(
+        video_path=video,
+        events_path=events_file,
+        events=events,
+        total_events_loaded=total_events_loaded,
+        filtered_events_loaded=filtered_events_loaded,
+        auto_filtered=auto_filter_events,
+        video_window=video_window,
+    )

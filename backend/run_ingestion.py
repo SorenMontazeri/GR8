@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 
-#skript som startar ingestion:
-#cd GR8/backend 
+# Starta ingestion från GR8/backend:
 # source .venv/bin/activate
-#export FACADE_API_KEY='din_nyckel'
-#
-#python run_ingestion.py \
-#  --camera-id 1 \
-#  --rtsp-url rtsp://127.0.0.1:8554/1 \
-#  --broker-host 127.0.0.1 \
-#  --broker-port 1883
+# export FACADE_API_KEY='din_nyckel'
+# python run_ingestion.py \
+#   --camera-id 1 \
+#   --rtsp-url rtsp://127.0.0.1:8554/1 \
+#   --broker-host 127.0.0.1 \
+#   --broker-port 1883
 
 
 from __future__ import annotations

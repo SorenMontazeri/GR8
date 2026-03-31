@@ -31,7 +31,7 @@ Vad man ska titta efter i filsystemet / systemet:
 - Tillfälliga testfiler skapas och städas bort automatiskt.
 
 För att köra testet:
-Du måste starta simulerade kameran först, se skriptet för att starta den i run_simulated_camera.py
+Inga externa tjänster behöver startas först. Detta är ett unit-test för simulatorns interna logik.
 Glöm inte starta venv också: source .venv/bin/activate
 cd GR8/backend
 python3 -m pytest tests/ingestion_tests/test_ingestion_simulated_camera.py -v
@@ -165,6 +165,34 @@ class ScenarioLoaderTests(unittest.TestCase):
         self.assertEqual(len(scenario.events), 1)
         self.assertEqual(scenario.events[0].payload["id"], "wrapped-1")
         self.assertEqual(scenario.events[0].offset_ms, 0)
+
+    def test_load_scenario_can_auto_filter_raw_live_events_to_video_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            video_path = temp_path / "D2026-03-31-T14-04-45.mp4"
+            video_path.write_bytes(b"fake-mp4")
+            events_path = temp_path / "live_events.jsonl"
+            events_path.write_text(
+                "\n".join(
+                    [
+                        json.dumps({"id": "before", "start_time": "2026-03-31T12:04:44.900Z"}),
+                        json.dumps({"id": "inside-1", "start_time": "2026-03-31T12:04:45.000Z"}),
+                        json.dumps({"id": "inside-2", "start_time": "2026-03-31T12:04:46.200Z"}),
+                        json.dumps({"id": "after", "start_time": "2026-03-31T12:04:50.500Z"}),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            with patch("ingestion.simulator.scenario_loader._probe_video_duration_ms", return_value=5000):
+                scenario = load_scenario(video_path, events_path, auto_filter_events=True)
+
+        self.assertEqual([event.payload["id"] for event in scenario.events], ["inside-1", "inside-2"])
+        self.assertEqual(scenario.total_events_loaded, 4)
+        self.assertEqual(scenario.filtered_events_loaded, 2)
+        self.assertTrue(scenario.auto_filtered)
+        self.assertIsNotNone(scenario.video_window)
 
 
 class TimestampRewriterTests(unittest.TestCase):

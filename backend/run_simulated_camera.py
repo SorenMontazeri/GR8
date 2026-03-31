@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 
-#skript som startar simulerade kameran:
-#cd GR8/backend
-#source .venv/bin/activate
-#python run_simulated_camera.py \
-#  --video recordings/1/D2026-02-24-T13-16-48.mp4 \
-#  --events replay_out/scenario_2026-02-24_131648.jsonl \
-#  --camera-id 1 \
-#  --loop
+# Starta simulerad kamera från GR8/backend:
+# source .venv/bin/activate
+# python run_simulated_camera.py \
+#   --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+#   --events replay_out/live_events.jsonl \
+#   --camera-id 1 \
+#   --auto-filter-events \
+#   --loop
 
 from __future__ import annotations
 
@@ -96,6 +96,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rtsp-port", type=int, default=8554, help="RTSP server port.")
     parser.add_argument("--warmup-seconds", type=float, default=5.0, help="Simulator warmup before MQTT replay starts.")
     parser.add_argument("--loop", action="store_true", help="Loop simulator video and MQTT scenario forever.")
+    parser.add_argument(
+        "--auto-filter-events",
+        action="store_true",
+        help=(
+            "Treat --events as a raw live JSONL file and let the simulator select only the MQTT "
+            "events that belong to the chosen video's time window."
+        ),
+    )
     parser.add_argument("--no-mqtt", action="store_true", help="Stream RTSP only and skip MQTT replay.")
     parser.add_argument("--skip-mediamtx", action="store_true", help="Do not start mediamtx automatically.")
     parser.add_argument("--skip-mosquitto", action="store_true", help="Do not start mosquitto automatically.")
@@ -167,12 +175,14 @@ def main() -> int:
                 [
                     "--events",
                     args.events,
+                    "--auto-filter-events" if args.auto_filter_events else "",
                     "--broker-host",
                     args.broker_host,
                     "--broker-port",
                     str(args.broker_port),
                 ]
             )
+            simulator_cmd = [part for part in simulator_cmd if part]
 
         simulator_process = _start_process(simulator_cmd, prefix="simulator", cwd=backend_dir)
 

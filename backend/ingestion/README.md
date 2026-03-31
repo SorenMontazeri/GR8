@@ -187,12 +187,41 @@ Kör simulatorn från `GR8/backend`:
 PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
   --video path/to/video.mp4 \
   --events path/to/events.jsonl \
-  --camera-id sim-1 \
+  --camera-id 1 \
   --broker-host 127.0.0.1 \
   --broker-port 1883 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/sim-1 \
+  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
   --loop
 ```
+
+Det enklaste standardläget för nya inspelningar är:
+- `--camera-id 1`
+- `--events replay_out/live_events.jsonl`
+- `--auto-filter-events`
+
+Då följer simulatorn samma `camera_id`-konvention som resten av projektet, och väljer själv rätt MQTT-event för videon.
+
+Om `--events` pekar på en större rå livefil, till exempel `replay_out/live_events.jsonl`, kan simulatorn själv filtrera fram rätt MQTT-event för videon. Då måste videon vara döpt som en vanlig recording-fil, till exempel `D2026-03-31-T14-04-45.mp4`, så att starttiden kan läsas från filnamnet:
+
+```bash
+PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
+  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+  --events replay_out/live_events.jsonl \
+  --camera-id 1 \
+  --broker-host 127.0.0.1 \
+  --broker-port 1883 \
+  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
+  --auto-filter-events \
+  --loop
+```
+
+Det läget förändrar inte ingestionflödet. Det förändrar bara simulatorns förarbete:
+- simulatorn läser videons starttid från filnamnet
+- simulatorn läser videons längd
+- simulatorn väljer bara MQTT-event som faller inom videons tidsfönster
+- simulatorn publicerar sedan RTSP + MQTT som vanligt live
+
+Om inga event matchar videons tidsfönster avslutar simulatorn nu med ett tydligt fel i stället för att spela upp hela råfilen felaktigt.
 
 Det finns även en orkestrerare för hela appstacken för E2E-test:
 
@@ -217,9 +246,10 @@ Om du bara vill starta den simulerade kameran och infrastrukturen, men köra ing
 cd GR8/backend
 source .venv/bin/activate
 python run_simulated_camera.py \
-  --video recordings/1/D2026-02-24-T13-16-48.mp4 \
-  --events replay_out/scenario_2026-02-24_131648.jsonl \
+  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+  --events replay_out/live_events.jsonl \
   --camera-id 1 \
+  --auto-filter-events \
   --loop
 ```
 
@@ -271,14 +301,14 @@ RTSP-only:
 ```bash
 PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
   --video path/to/video.mp4 \
-  --camera-id sim-1 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/sim-1 \
+  --camera-id 1 \
+  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
   --no-mqtt
 ```
 
 Ingestion kan sedan ansluta transparent mot:
-- RTSP read URL: `rtsp://127.0.0.1:8554/sim-1`
-- MQTT topic: `camera/sim-1`
+- RTSP read URL: `rtsp://127.0.0.1:8554/1`
+- MQTT topic: `camera/1`
 
 ### Rekommenderad lokal MediaMTX-konfiguration
 
@@ -296,7 +326,7 @@ Den konfigurationen:
 - öppnar RTSP på `:8554`
 - använder endast TCP för RTSP
 - accepterar publisher-baserade paths
-- har en explicit path för `sim-1`
+- använder en RTSP-path som följer `camera_id`, till exempel `1`
 
 ## Körning
 
@@ -334,9 +364,9 @@ Simulerad livekamera E2E-test (manuellt):
 RUN_SIMULATED_LIVE_E2E_TEST=1 \
 SIM_VIDEO='path/to/video.mp4' \
 SIM_EVENTS='path/to/events.jsonl' \
-SIM_CAMERA_ID='sim-1' \
-SIM_RTSP_PUBLISH_URL='rtsp://127.0.0.1:8554/sim-1' \
-SIM_RTSP_READ_URL='rtsp://127.0.0.1:8554/sim-1' \
+SIM_CAMERA_ID='1' \
+SIM_RTSP_PUBLISH_URL='rtsp://127.0.0.1:8554/1' \
+SIM_RTSP_READ_URL='rtsp://127.0.0.1:8554/1' \
 SIM_BROKER_HOST='127.0.0.1' \
 SIM_BROKER_PORT='1883' \
 PYTHONPATH=. python3 -m unittest tests.ingestion_tests.test_ingestion_simulated_live_camera_e2e -v
@@ -363,12 +393,13 @@ mosquitto -p 1883
 cd GR8/backend
 source .venv/bin/activate
 PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video recordings/1/D2026-02-24-T13-16-48.mp4 \
-  --events replay_out/scenario_2026-02-24_131648.jsonl \
-  --camera-id sim-1 \
+  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+  --events replay_out/live_events.jsonl \
+  --camera-id 1 \
   --broker-host 127.0.0.1 \
   --broker-port 1883 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/sim-1 \
+  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
+  --auto-filter-events \
   --loop
 ```
 
@@ -391,8 +422,8 @@ model = "prisma_gemini_pro"
 
 llm = LLMClientSync(endpoint, api_key, model)
 camera = Camera(
-    camera_id="sim-1",
-    rtsp_url="rtsp://127.0.0.1:8554/sim-1",
+    camera_id="1",
+    rtsp_url="rtsp://127.0.0.1:8554/1",
     ffmpeg=imageio_ffmpeg.get_ffmpeg_exe(),
     broker_host="127.0.0.1",
     broker_port=1883,
@@ -411,7 +442,7 @@ PY
 
 Förväntat resultat:
 - simulatorn skriver `Simulation completed: ...`
-- MediaMTX visar att publisher/readers ansluter till path `sim-1`
+- MediaMTX visar att publisher/readers ansluter till path `1`
 - ingestion-processen visar att hot buffer och MQTT-buffer innehåller data
 - om analysklienten är korrekt konfigurerad skrivs `keywords` ut när MQTT-event matchas mot en frame
 

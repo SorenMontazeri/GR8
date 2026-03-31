@@ -1,4 +1,4 @@
-#root {
+/* #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
@@ -43,4 +43,30 @@
 
 
 
+ */
+@layer base {
+  :root {
+    /* ... andra inställningar ... */
+    background-color: #49564F; /* Ändra här */
+    color: white; /* Valfritt: gör texten vit för bättre kontrast */
+  }
 
+  body {
+    margin: 0;
+    display: flex;
+    place-items: center;
+    min-width: 320px;
+    min-height: 100vh;
+    background-color: #49564F; /* Säkerställ att body också har färgen */
+    justify-content: center;
+    align-items: center;
+  }
+
+  /* Ta bort eller kommentera ut media queryn för light mode 
+     om du vill att färgen ska vara densamma jämt */
+  @media (prefers-color-scheme: light) {
+    :root {
+      background-color: #49564F; 
+    }
+  }
+}

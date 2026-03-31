@@ -20,7 +20,7 @@ function App() {
 
   return (
     <div className="App flex flex-col items-center justify-center min-h-screen gap-4">
-      <h1 className="text-3xl font-bold text-gray-800">GR8</h1>
+      <h1 className="text-3xl font-bold text-white">GR8</h1>
 
       <TextSearch searchString={searchString} setString={setString} />
 

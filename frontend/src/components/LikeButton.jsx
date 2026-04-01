@@ -6,29 +6,33 @@ on it which updates the submittedName state in App.jsx */
 export default function LikeButton({ searchString, imageType }) {
     const [liked, setLiked] = useState(false);
 
-    // Anrop till databas 
     const handleLikeClick = async () => {
-        if (!searchString) return;
+        //if (!searchString) return;
+
         const newLikedStatus = !liked;
         setLiked(newLikedStatus);
+
         try {
-            await fetch("http://localhost:8000/api/like", {
+            await fetch("http://localhost:8000/api/feedback", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    imageId: searchString,        
-                    type: imageType,    // t.ex. "fullframe"
-                    isLiked: newLikedStatus
+                    description_type: imageType, 
+                    // Konvertera searchString till ett heltal (int)
+                    id: 1, 
+                    // Skicka 1 för like, -1 för dislike
+                    feedback: newLikedStatus ? 1 : -1 
                 })
             });
         } catch (err) {
-            console.error("Kunde inte spara till databasen", err);
+            console.error("Init feedback request failed:", err);
+            setLiked(!newLikedStatus);
         }
     };
     
   return (
     <button
-      //id={id}
+     // id={id}
       type="button"
       onClick={handleLikeClick}
       className={`inline-block w-fit px-2 py-1 text-xs leading-none rounded-md focus:outline-none ${

@@ -1,31 +1,57 @@
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 import base64
-import uvicorn
+import json
+import os
+
 from pathlib import Path
+from sentence_transformers import SentenceTransformer
+
 import sqlite3
-from pathlib import Path
-import os, cv2, base64
-from datetime import datetime, timedelta
+
+import cv2
+import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
 RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
+MODEL_PATH = "./models/all-MiniLM-L6-v2"
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MODEL_DIR = "./models/all-MiniLM-L6-v2"
+if Path(MODEL_DIR).exists():
+    model = SentenceTransformer(MODEL_DIR)
+else:
+    model = SentenceTransformer(MODEL_NAME)
+    model.save(MODEL_DIR)
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+FEEDBACK_TARGETS = {
+    "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
+    "varied": ("sequence_description_varied", "sequence_description_varied_id"),
+    "snapshot": ("snapshot_description", "snapshot_description_id"),
+    "full_frame": ("full_frame_description", "full_frame_description_id"),
+}
 
-@app.get("/api/image/{name}")
+
+class FeedbackRequest(BaseModel):
+    description_type: str
+    id: int  # description_group.id
+    feedback: int  # 1 or -1
+
+
+#@app.get("/api/image/{name}")
 def get_image(name: str):
-    #Hämtar en bild från en request från frontend. Indata är en tagg/description som söks på, och det returnar en bas64 sträng med bilden
     ts = timestamp_from_description(name)
     if ts is None:
         raise HTTPException(status_code=404, detail="No timestamp for this description")
@@ -37,16 +63,116 @@ def get_image(name: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-def create_database() -> None:
-    # Här kommer vi in om databasen vi vill lägga in något i inte finns. Isåfall vill vi göra ett nytt table så vi kan lägga in datan.
+@app.post("/api/feedback", status_code=204)
+def post_feedback(payload: FeedbackRequest):
+    update_feedback(payload.description_type, payload.id, payload.feedback)
+
+
+def update_feedback(description_type: str, group_id: int, feedback_value: int) -> None:
+    target = FEEDBACK_TARGETS.get(description_type.strip().lower())
+    if target is None:
+        raise HTTPException(
+            status_code=400,
+            detail="description_type must be one of: uniform, varied, snapshot, full_frame",
+        )
+    table, group_fk_column = target
+
+    create_database()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
+        f"SELECT {group_fk_column} FROM description_group WHERE id = ?;",
+        (group_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"No description_group found with id={group_id}")
+
+    target_row_id = row[0]
+    if target_row_id is None:
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail=f"description_group id={group_id} has no linked {description_type} row",
+        )
+
+    cur.execute(f"UPDATE {table} SET feedback = ? WHERE id = ?;", (feedback_value, target_row_id))
+    updated = cur.rowcount
+    conn.commit()
+    conn.close()
+
+    if updated == 0:
+        raise HTTPException(status_code=404, detail=f"No row found with id={target_row_id} in {table}")
+
+
+def create_database() -> None:
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.executescript(
         """
         CREATE TABLE IF NOT EXISTS analysis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             created_at TEXT NOT NULL,
             description TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS sequence_description_uniform (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp_start TEXT NOT NULL,
+            timestamp_end TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            timestamps_json TEXT NOT NULL,
+            llm_description TEXT NOT NULL,
+            description_embedding TEXT,
+            feedback INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS sequence_description_varied (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp_start TEXT NOT NULL,
+            timestamp_end TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            timestamps_json TEXT NOT NULL,
+            llm_description TEXT NOT NULL,
+            description_embedding TEXT,
+            feedback INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS snapshot_description (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            llm_description TEXT NOT NULL,
+            description_embedding TEXT,
+            feedback INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS full_frame_description (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            llm_description TEXT NOT NULL,
+            description_embedding TEXT,
+            feedback INTEGER DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS description_group (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp_start TEXT NOT NULL,
+            timestamp_end TEXT NOT NULL,
+            sequence_description_uniform_id INTEGER,
+            sequence_description_varied_id INTEGER,
+            snapshot_description_id INTEGER,
+            full_frame_description_id INTEGER,
+            FOREIGN KEY (sequence_description_uniform_id)
+                REFERENCES sequence_description_uniform(id),
+            FOREIGN KEY (sequence_description_varied_id)
+                REFERENCES sequence_description_varied(id),
+            FOREIGN KEY (snapshot_description_id)
+                REFERENCES snapshot_description(id),
+            FOREIGN KEY (full_frame_description_id)
+                REFERENCES full_frame_description(id)
         );
         """
     )
@@ -54,15 +180,19 @@ def create_database() -> None:
     conn.close()
 
 
+def _to_iso(ts: datetime | str) -> str:
+    if isinstance(ts, datetime):
+        return ts.isoformat()
+    return ts
+
+
 def save_analysis(created_at: datetime, description: str) -> int:
-    # Sammanfattningen som kommer från analysdelen kallar på den här funktionen och sparar allt i ett table med datetime och keywords.
     create_database()
-    rows = [(created_at.isoformat(), d) for d in description]
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.executemany(
+    cur.execute(
         "INSERT INTO analysis (created_at, description) VALUES (?, ?);",
-        rows
+        (created_at.isoformat(), description),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -71,9 +201,7 @@ def save_analysis(created_at: datetime, description: str) -> int:
 
 
 def timestamp_from_description(description: str) -> str | None:
-    # Hjälpfunktion som är det som faktiskt hämtar ut vilken datetime som hör till den desctiption som söks efter.
     create_database()
-
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -86,6 +214,236 @@ def timestamp_from_description(description: str) -> str | None:
     if row is None:
         return None
     return row[0]
+
+
+def save_sequence_description_uniform(
+    timestamp_start: datetime | str,
+    timestamp_end: datetime | str,
+    created_at: datetime | str,
+    timestamps: list[datetime | str],
+    llm_description: str,
+    description_embedding: str | None = None,
+    feedback: int = 0,
+) -> int:
+    create_database()
+    timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO sequence_description_uniform (
+            timestamp_start, timestamp_end, created_at, timestamps_json,
+            llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+        """,
+        (
+            _to_iso(timestamp_start),
+            _to_iso(timestamp_end),
+            _to_iso(created_at),
+            timestamps_json,
+            llm_description,
+            description_embedding,
+            feedback,
+        ),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def save_sequence_description_varied(
+    timestamp_start: datetime | str,
+    timestamp_end: datetime | str,
+    created_at: datetime | str,
+    timestamps: list[datetime | str],
+    llm_description: str,
+    description_embedding: str | None = None,
+    feedback: int = 0,
+) -> int:
+    create_database()
+    timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO sequence_description_varied (
+            timestamp_start, timestamp_end, created_at, timestamps_json,
+            llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+        """,
+        (
+            _to_iso(timestamp_start),
+            _to_iso(timestamp_end),
+            _to_iso(created_at),
+            timestamps_json,
+            llm_description,
+            description_embedding,
+            feedback,
+        ),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def save_snapshot_description(
+    timestamp: datetime | str,
+    created_at: datetime | str,
+    llm_description: str,
+    description_embedding: str | None = None,
+    feedback: int = 0,
+) -> int:
+    create_database()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO snapshot_description (
+            timestamp, created_at, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?);
+        """,
+        (_to_iso(timestamp), _to_iso(created_at), llm_description, description_embedding, feedback),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def save_full_frame_description(
+    timestamp: datetime | str,
+    created_at: datetime | str,
+    llm_description: str,
+    description_embedding: str | None = None,
+    feedback: int = 0,
+) -> int:
+    create_database()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO full_frame_description (
+            timestamp, created_at, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?);
+        """,
+        (_to_iso(timestamp), _to_iso(created_at), llm_description, description_embedding, feedback),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def save_description_group(
+    timestamp_start: datetime | str,
+    timestamp_end: datetime | str,
+    sequence_description_uniform_id: int | None = None,
+    sequence_description_varied_id: int | None = None,
+    snapshot_description_id: int | None = None,
+    full_frame_description_id: int | None = None,
+) -> int:
+    create_database()
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO description_group (
+            timestamp_start, timestamp_end,
+            sequence_description_uniform_id, sequence_description_varied_id,
+            snapshot_description_id, full_frame_description_id
+        ) VALUES (?, ?, ?, ?, ?, ?);
+        """,
+        (
+            _to_iso(timestamp_start),
+            _to_iso(timestamp_end),
+            sequence_description_uniform_id,
+            sequence_description_varied_id,
+            snapshot_description_id,
+            full_frame_description_id,
+        ),
+    )
+    conn.commit()
+    row_id = cur.lastrowid
+    conn.close()
+    return row_id
+
+
+def save_description_bundle(
+    timestamp_start: datetime | str,
+    timestamp_end: datetime | str,
+    created_at: datetime | str,
+    uniform_llm_description: str,
+    varied_llm_description: str,
+    snapshot_llm_description: str,
+    full_frame_llm_description: str,
+    uniform_timestamps: list[datetime | str] | None = None,
+    varied_timestamps: list[datetime | str] | None = None,
+    snapshot_timestamp: datetime | str | None = None,
+    full_frame_timestamp: datetime | str | None = None
+) -> dict[str, int]:
+    start_iso = _to_iso(timestamp_start)
+    end_iso = _to_iso(timestamp_end)
+
+    if uniform_timestamps is None:
+        uniform_timestamps = [start_iso, end_iso]
+    if varied_timestamps is None:
+        varied_timestamps = [start_iso, end_iso]
+    if snapshot_timestamp is None:
+        snapshot_timestamp = start_iso
+    if full_frame_timestamp is None:
+        full_frame_timestamp = end_iso
+
+    uniform_id = save_sequence_description_uniform(
+        timestamp_start=start_iso,
+        timestamp_end=end_iso,
+        created_at=created_at,
+        timestamps=uniform_timestamps,
+        llm_description=uniform_llm_description,
+        description_embedding=json.dumps(embed(uniform_llm_description)),
+    )
+    varied_id = save_sequence_description_varied(
+        timestamp_start=start_iso,
+        timestamp_end=end_iso,
+        created_at=created_at,
+        timestamps=varied_timestamps,
+        llm_description=varied_llm_description,
+        description_embedding=json.dumps(embed(varied_llm_description)),
+    )
+    snapshot_id = save_snapshot_description(
+        timestamp=snapshot_timestamp,
+        created_at=created_at,
+        llm_description=snapshot_llm_description,
+        description_embedding=json.dumps(embed(snapshot_llm_description)),
+    )
+    full_frame_id = save_full_frame_description(
+        timestamp=full_frame_timestamp,
+        created_at=created_at,
+        llm_description=full_frame_llm_description,
+        description_embedding=json.dumps(embed(full_frame_llm_description)),
+    )
+    group_id = save_description_group(
+        timestamp_start=start_iso,
+        timestamp_end=end_iso,
+        sequence_description_uniform_id=uniform_id,
+        sequence_description_varied_id=varied_id,
+        snapshot_description_id=snapshot_id,
+        full_frame_description_id=full_frame_id,
+    )
+
+    return {
+        "sequence_description_uniform_id": uniform_id,
+        "sequence_description_varied_id": varied_id,
+        "snapshot_description_id": snapshot_id,
+        "full_frame_description_id": full_frame_id,
+        "description_group_id": group_id,
+    }
 
 
 def image_from_timestamp(t, clip=10):
@@ -114,7 +472,6 @@ def image_from_timestamp(t, clip=10):
                 if not ok:
                     raise RuntimeError("Kunde inte läsa frame")
 
-                # Encode to JPEG in memory
                 _, buffer = cv2.imencode(".jpg", frame)
                 return base64.b64encode(buffer).decode("utf-8")
         except ValueError:
@@ -128,5 +485,181 @@ def image_from_timestamp(t, clip=10):
     print(f"[database] {message}")
     raise FileNotFoundError(message)
 
+def embed(text: str):
+    return model.encode(text, normalize_embeddings=True).tolist()
+
+def cosine_similarity(a, b):
+    return sum(x * y for x, y in zip(a, b))
+
+def find_best_timestamp(query):
+    query_embedding = embed(query)
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    best_score = None
+    best_timestamp = None
+    results = []
+
+    cur.execute("""
+        SELECT id, timestamp_start AS timestamp, description_embedding
+        FROM sequence_description_uniform
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
+
+    cur.execute("""
+        SELECT id, timestamp_start AS timestamp, description_embedding
+        FROM sequence_description_varied
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
+
+    cur.execute("""
+        SELECT id, timestamp, description_embedding
+        FROM snapshot_description
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
+
+    cur.execute("""
+        SELECT id, timestamp, description_embedding
+        FROM full_frame_description
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
+    for row in results:
+        desc_embedding = json.loads(row["description_embedding"])
+        score = cosine_similarity(query_embedding, desc_embedding)
+
+        if best_score is None or score > best_score:
+            best_score = score
+            best_timestamp = row["timestamp"]
+    
+    conn.close()
+    return best_timestamp
+
+def seed_test_data():
+    now = datetime.now(RECORDINGS_TZ)
+
+    events = [
+        {
+            "start": now + timedelta(minutes=0),
+            "end": now + timedelta(minutes=1),
+            "uniform": "En person går genom rummet i jämn takt.",
+            "varied": "En person syns först vid dörren och rör sig sedan mot mitten av rummet.",
+            "snapshot": "En person står nära dörröppningen.",
+            "full_frame": "Rummet är synligt i helbild med en person som passerar genom scenen.",
+        },
+        {
+            "start": now + timedelta(minutes=2),
+            "end": now + timedelta(minutes=3),
+            "uniform": "Två personer sitter stilla vid ett bord.",
+            "varied": "Två personer kommer in, sätter sig vid bordet och verkar samtala.",
+            "snapshot": "Två personer sitter vid bordet.",
+            "full_frame": "Helbild av rummet där två personer sitter mittemot varandra.",
+        },
+        {
+            "start": now + timedelta(minutes=4),
+            "end": now + timedelta(minutes=5),
+            "uniform": "En person plockar upp ett föremål från golvet.",
+            "varied": "En person böjer sig ner, tar upp något från golvet och reser sig igen.",
+            "snapshot": "En person är böjd mot golvet.",
+            "full_frame": "Rummet i helbild med en person nära golvet i ena delen av scenen.",
+        },
+        {
+            "start": now + timedelta(minutes=6),
+            "end": now + timedelta(minutes=7),
+            "uniform": "En dörr öppnas och stängs.",
+            "varied": "Dörren öppnas kort, någon tittar in och dörren stängs igen.",
+            "snapshot": "En öppen dörr syns i bilden.",
+            "full_frame": "Helbild av rummet där dörren längst bort står öppen.",
+        },
+        {
+            "start": now + timedelta(minutes=8),
+            "end": now + timedelta(minutes=9),
+            "uniform": "En person står stilla mitt i rummet.",
+            "varied": "En person går in i rummet, stannar i mitten och tittar runt.",
+            "snapshot": "En person står i mitten av rummet.",
+            "full_frame": "Rummet syns i helbild med en person centralt placerad.",
+        },
+        {
+            "start": now + timedelta(minutes=10),
+            "end": now + timedelta(minutes=11),
+            "uniform": "En person passerar snabbt genom rummet.",
+            "varied": "En person springer från vänster till höger och försvinner snabbt ur bild.",
+            "snapshot": "En person är i rörelse nära höger sida.",
+            "full_frame": "Helbild där en person snabbt korsar rummet.",
+        },
+        {
+            "start": now + timedelta(minutes=12),
+            "end": now + timedelta(minutes=13),
+            "uniform": "Ett tomt rum utan synlig aktivitet.",
+            "varied": "Ingen person syns och scenen förblir oförändrad under hela intervallet.",
+            "snapshot": "Rummet är tomt.",
+            "full_frame": "Helbild av ett tomt rum utan rörelse.",
+        },
+        {
+            "start": now + timedelta(minutes=14),
+            "end": now + timedelta(minutes=15),
+            "uniform": "En person sitter ner på en stol.",
+            "varied": "En person går fram till en stol och sätter sig ner.",
+            "snapshot": "En person sitter på en stol.",
+            "full_frame": "Rummet visas i helbild med en sittande person nära ena väggen.",
+        },
+        {
+            "start": now + timedelta(minutes=16),
+            "end": now + timedelta(minutes=17),
+            "uniform": "Två personer går in i rummet.",
+            "varied": "Två personer kommer in genom dörren och stannar nära ingången.",
+            "snapshot": "Två personer står nära dörren.",
+            "full_frame": "Helbild av rummet med två personer vid entrén.",
+        },
+        {
+            "start": now + timedelta(minutes=18),
+            "end": now + timedelta(minutes=19),
+            "uniform": "En person lämnar rummet.",
+            "varied": "En person går mot dörren och försvinner ut ur scenen.",
+            "snapshot": "En person är nära utgången.",
+            "full_frame": "Rummet i helbild där en person precis är på väg ut genom dörren.",
+        },
+    ]
+
+    for event in events:
+        save_description_bundle(
+            timestamp_start=event["start"],
+            timestamp_end=event["end"],
+            created_at=datetime.now(RECORDINGS_TZ),
+            uniform_llm_description=event["uniform"],
+            varied_llm_description=event["varied"],
+            snapshot_llm_description=event["snapshot"],
+            full_frame_llm_description=event["full_frame"],
+            uniform_timestamps=[event["start"], event["end"]],
+            varied_timestamps=[event["start"], event["end"]],
+            snapshot_timestamp=event["start"],
+            full_frame_timestamp=event["end"],
+        )    
+
+
 if __name__ == "__main__":
+    # save_description_bundle(
+    #     datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+    #     datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+    #     datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+    #     "Uniform LLM Description",
+    #     "Varied LLM Description",
+    #     "Snapshot LLM Description",
+    #     "Full Frame LLM Description",
+    #     [
+    #         datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+    #         datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+    #     ],
+    #     [
+    #         datetime(2026, 2, 9, 11, 51, 2, tzinfo=RECORDINGS_TZ),
+    #         datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+    #     ],
+    #     snapshot_timestamp=datetime(2026, 2, 9, 11, 51, 3, tzinfo=RECORDINGS_TZ),
+    #     full_frame_timestamp=datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+    # )
+
     uvicorn.run("database:app", reload=True)

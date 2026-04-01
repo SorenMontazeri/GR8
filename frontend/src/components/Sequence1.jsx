@@ -34,7 +34,7 @@ export default function Seq1({ searchString }) {
     load();
   }, [searchString]);
 
-  if (!searchString) return <p>Seq1.</p>;
+  if (!searchString) return <p>Seq1...</p>;
 
   if (error) return <p>Failed to load image: {error}</p>;
   if (loading || !imgSrc) return <p>Loading image...</p>;

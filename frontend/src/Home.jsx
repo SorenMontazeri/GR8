@@ -37,7 +37,7 @@ function Home({ onAnalysClick }) {
                     {/* FullFrame */}
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
                           <FullFrameImage searchString={submittedString} />
-                          <LikeButton searchString={submittedString} imageType="fullframe" />
+                          <LikeButton searchString={submittedString} imageType="full_frame" />
                           <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
                           <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
                 </div> 
@@ -56,19 +56,25 @@ function Home({ onAnalysClick }) {
         <div className="App flex flex-col bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
 
         {/* DEN NYA BLÄDDRINGSBARA SEKVENSSEN */}
-        <h2 className="text-xl font-bold text-[#FFCC00] text-center">Bläddra i bildsekvens</h2>
+         {/* Sequence 1 - Uniform*/}
+        <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens  Uniform</h2>
+        
         <ImageCarousel searchString={submittedString} />
-        <LikeButton searchString={submittedString} imageType="carousel" />
-  
-        <hr className="border-[#555] my-4" /> {/* En linje för att dela upp */}
-        {/* Sequence 1 */}
         <Seq1 searchString={submittedString} />
-        <LikeButton searchString={submittedString} imageType="seq1" />
+        <LikeButton searchString={submittedString} imageType="uniform" />
         <a className="text-l font-bold text-[#FFCC00] mb-2">Time:</a>
         <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
-        {/* Sequence 2 */}
+
+        <hr className="border-[#555] my-4" /> {/* En linje för att dela upp */}
+
+
+      
+        
+        {/* Sequence 2  Varied*/}
+        <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens 2 Varied</h2>
+        <ImageCarousel searchString={submittedString} />
         <Seq2 searchString={submittedString} />
-        <LikeButton searchString={submittedString} imageType="seq2" />
+        <LikeButton searchString={submittedString} imageType="varied" />
         <a className="text-l font-bold text-[#FFCC00] mb-2">Time:</a>
         <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
         </div> 

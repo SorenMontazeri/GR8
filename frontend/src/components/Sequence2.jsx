@@ -18,7 +18,7 @@ export default function Seq2({ searchString }) {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`http://localhost:8000/api/image/${searchString}`);
+        const res = await fetch(`http://localhost:8000/api/image/seq2${searchString}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 

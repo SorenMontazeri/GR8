@@ -18,7 +18,7 @@ export default function Seq1({ searchString }) {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`http://localhost:8000/api/image/${searchString}`);
+        const res = await fetch(`http://localhost:8000/api/image/seq1${searchString}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         //HÄR VILL VI HA EN SEKVENS AV BILDER SOM EN LISTA

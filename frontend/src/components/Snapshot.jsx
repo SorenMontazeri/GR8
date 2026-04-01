@@ -18,7 +18,7 @@ export default function Snapshot({ searchString }) {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`http://localhost:8000/api/image/${searchString}`);
+        const res = await fetch(`http://localhost:8000/api/image/snapshot/${searchString}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 

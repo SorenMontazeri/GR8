@@ -20,21 +20,13 @@ export default function FullFrameImage({ searchString }) {
         setError(null);
         const USE_MOCK = true;
 
-        if (USE_MOCK) {
-          const mockData = {
-            image:
-              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5ZkAAAAASUVORK5CYII=",
-          };
-
-          setImgSrc(`data:image/png;base64,${mockData.image}`);
         
-          return;
-        }
-        // const res = await fetch(`http://localhost:8000/api/image/${searchString}`);
-        // if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        // const data = await res.json();
-        // //HÄR VILL VI HÄMTA EN FULLFRAME 
-        // setImgSrc(`data:image/jpeg;base64,${data.image}`);
+
+        const res = await fetch(`http://localhost:8000/api/image/fullframe/${searchString}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        //HÄR VILL VI HÄMTA EN FULLFRAME 
+        setImgSrc(`data:image/jpeg;base64,${data.image}`);
       } catch (e) {
         setImgSrc(null);
         setError(e.message);

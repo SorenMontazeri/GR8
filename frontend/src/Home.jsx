@@ -5,6 +5,8 @@ import FullFrameImage from "./components/FullFrame.jsx";
 import Seq1 from "./components/Sequence1.jsx";
 import Seq2 from "./components/Sequence2.jsx";
 import Snapshot from "./components/Snapshot.jsx";
+import LikeButton from "./components/LikeButton";
+import ImageCarousel from "./Features/ImageCarousel";
 
 function Home({ onAnalysClick }) {
   const [searchString, setString] = useState("");          // what user types
@@ -16,8 +18,6 @@ function Home({ onAnalysClick }) {
   function handleSearch() {
     setSubmittedString(searchString.trim());
   }
-
-
 
   return (
     <div className="App flex flex-col items-center justify-center min-h-screen gap-4">
@@ -34,13 +34,18 @@ function Home({ onAnalysClick }) {
       <SearchButton id={searchString} onClick={handleSearch} />
       <div className="App flex flex-row bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
                 <div className="App flex flex-col">
+                    {/* FullFrame */}
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
                           <FullFrameImage searchString={submittedString} />
+                          <LikeButton searchString={submittedString} imageType="fullframe" />
+                          <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
+                          <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
                 </div> 
                 <div className="App flex flex-col">
+                    {/* Snapshot */}
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot Image</h2>
-
                     <Snapshot searchString={submittedString} />
+                    <LikeButton searchString={submittedString} imageType="snapshot" />
                     <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
                     <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
 
@@ -49,11 +54,25 @@ function Home({ onAnalysClick }) {
         </div> 
         
         <div className="App flex flex-col bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
+
+        {/* DEN NYA BLÄDDRINGSBARA SEKVENSSEN */}
+        <h2 className="text-xl font-bold text-[#FFCC00] text-center">Bläddra i bildsekvens</h2>
+        <ImageCarousel searchString={submittedString} />
+        <LikeButton searchString={submittedString} imageType="carousel" />
+  
+        <hr className="border-[#555] my-4" /> {/* En linje för att dela upp */}
+        {/* Sequence 1 */}
         <Seq1 searchString={submittedString} />
+        <LikeButton searchString={submittedString} imageType="seq1" />
+        <a className="text-l font-bold text-[#FFCC00] mb-2">Time:</a>
+        <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
+        {/* Sequence 2 */}
         <Seq2 searchString={submittedString} />
+        <LikeButton searchString={submittedString} imageType="seq2" />
+        <a className="text-l font-bold text-[#FFCC00] mb-2">Time:</a>
+        <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
         </div> 
 
-      
     </div>
   );
 }

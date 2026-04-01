@@ -4,7 +4,6 @@ pytest
 pytest-cov
 httpx
 python-dotenv
-amqtt
 
 av==16.1.0
 imageio-ffmpeg==0.6.0

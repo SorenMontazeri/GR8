@@ -59,6 +59,21 @@ mediamtx --version
 mosquitto -h | head
 ```
 
+### 2b. Windows
+
+På Windows är den enklaste vägen nu:
+- lägg `mediamtx.exe` i någon av dessa mappar:
+  - `GR8/tools/mediamtx/`
+  - `GR8/tools/windows/mediamtx/`
+  - `GR8/backend/tools/mediamtx/`
+- eller skicka full path via `--mediamtx-bin`
+
+`run_simulated_camera_windows.py` kan använda:
+- `mosquitto.exe` om det finns i PATH eller i motsvarande `tools/`-mapp
+- annars en lokal Python-broker via `amqtt`
+
+Det betyder att Windows-flödet inte längre kräver att `mosquitto.exe` är installerat systembrett för att simulatorn ska fungera.
+
 ### 3. Frontend
 
 Om du även vill testa sökning i UI behövs Node/npm.
@@ -259,6 +274,37 @@ Det scriptet startar:
 - simulatorn
 
 och skriver sedan ut RTSP-URL och MQTT-topic som ingestion kan ansluta mot.
+
+På Windows finns ett separat hjälpscript:
+
+```powershell
+cd GR8\backend
+.venv\Scripts\Activate.ps1
+python run_simulated_camera_windows.py `
+  --video recordings/1/D2026-03-31-T14-04-45.mp4 `
+  --events replay_out/live_events.jsonl `
+  --camera-id 1 `
+  --auto-filter-events `
+  --loop
+```
+
+Det scriptet:
+- letar efter `mediamtx.exe`
+- använder `mosquitto.exe` om det finns
+- faller annars tillbaka till en lokal Python-broker
+- startar sedan simulatorn och väntar tills RTSP-strömmen går att läsa
+
+Om `mediamtx.exe` inte ligger i PATH kan du ge full path:
+
+```powershell
+python run_simulated_camera_windows.py `
+  --mediamtx-bin C:\Tools\mediamtx\mediamtx.exe `
+  --video recordings/1/D2026-03-31-T14-04-45.mp4 `
+  --events replay_out/live_events.jsonl `
+  --camera-id 1 `
+  --auto-filter-events `
+  --loop
+```
 
 För att starta ingestion separat mot en live eller simulerad källa:
 

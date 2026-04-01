@@ -1,25 +1,31 @@
+from datetime import datetime, timedelta
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import base64
 import json
 import os
-from datetime import datetime, timedelta
+
 from pathlib import Path
+from sentence_transformers import SentenceTransformer
+
 import sqlite3
 
 import cv2
 import uvicorn
 from zoneinfo import ZoneInfo
 
-import math
-import re
-import unicodedata
-from collections import Counter
-
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
 RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
+MODEL_PATH = "./models/all-MiniLM-L6-v2"
+MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+MODEL_DIR = "./models/all-MiniLM-L6-v2"
+if Path(MODEL_DIR).exists():
+    model = SentenceTransformer(MODEL_DIR)
+else:
+    model = SentenceTransformer(MODEL_NAME)
+    model.save(MODEL_DIR)
 app = FastAPI()
 
 app.add_middleware(
@@ -44,7 +50,7 @@ class FeedbackRequest(BaseModel):
     vote: str  # like / dislike
 
 
-@app.get("/api/image/{name}")
+#@app.get("/api/image/{name}")
 def get_image(name: str):
     ts = timestamp_from_description(name)
     if ts is None:
@@ -105,7 +111,7 @@ def create_database() -> None:
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
             llm_description TEXT NOT NULL,
-            description_embedding BLOB,
+            description_embedding TEXT,
             feedback INTEGER DEFAULT 0
         );
 
@@ -116,7 +122,7 @@ def create_database() -> None:
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
             llm_description TEXT NOT NULL,
-            description_embedding BLOB,
+            description_embedding TSXT,
             feedback INTEGER DEFAULT 0
         );
 
@@ -125,7 +131,7 @@ def create_database() -> None:
             timestamp TEXT NOT NULL,
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
-            description_embedding BLOB,
+            description_embedding TEXT,
             feedback INTEGER DEFAULT 0
         );
 
@@ -134,7 +140,7 @@ def create_database() -> None:
             timestamp TEXT NOT NULL,
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
-            description_embedding BLOB,
+            description_embedding TEXT,
             feedback INTEGER DEFAULT 0
         );
 
@@ -387,7 +393,7 @@ def save_description_bundle(
         created_at=created_at,
         timestamps=uniform_timestamps,
         llm_description=uniform_llm_description,
-        description_embedding=normalize_text(uniform_llm_description),
+        description_embedding=json.dumps(embed(uniform_llm_description)),
     )
     varied_id = save_sequence_description_varied(
         timestamp_start=start_iso,
@@ -395,19 +401,19 @@ def save_description_bundle(
         created_at=created_at,
         timestamps=varied_timestamps,
         llm_description=varied_llm_description,
-        description_embedding=normalize_text(varied_llm_description),
+        description_embedding=json.dumps(embed(varied_llm_description)),
     )
     snapshot_id = save_snapshot_description(
         timestamp=snapshot_timestamp,
         created_at=created_at,
         llm_description=snapshot_llm_description,
-        description_embedding=normalize_text(snapshot_llm_description),
+        description_embedding=json.dumps(embed(snapshot_llm_description)),
     )
     full_frame_id = save_full_frame_description(
         timestamp=full_frame_timestamp,
         created_at=created_at,
         llm_description=full_frame_llm_description,
-        description_embedding=normalize_text(full_frame_llm_description),
+        description_embedding=json.dumps(embed(full_frame_llm_description)),
     )
     group_id = save_description_group(
         timestamp_start=start_iso,
@@ -466,85 +472,161 @@ def image_from_timestamp(t, clip=10):
     print(f"[database] {message}")
     raise FileNotFoundError(message)
 
-def normalize_text(text: str) -> str:
-    text = text.lower()
-    text = unicodedata.normalize("NFKD", text)
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    text = re.sub(r"[^a-z0-9\s]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+def embed(text: str):
+    return model.encode(text, normalize_embeddings=True).tolist()
 
-def tokenize(text: str):
-    return text.split()
+def cosine_similarity(a, b):
+    return sum(x * y for x, y in zip(a, b))
 
-def char_ngrams(text: str, n: int = 3):
-    text = normalize_text(text)
-    compact = text.replace(" ", "_")
-    if len(compact) < n:
-        return [compact] if compact else []
-    return [compact[i:i+n] for i in range(len(compact) - n + 1)]
+def find_best_timestamp(query):
+    query_embedding = embed(query)
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    best_score = None
+    best_timestamp = None
+    results = []
 
-def cosine_similarity(counter_a: Counter, counter_b: Counter) -> float:
-    if not counter_a or not counter_b:
-        return 0.0
+    cur.execute("""
+        SELECT id, timestamp_start AS timestamp, description_embedding
+        FROM sequence_description_uniform
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
 
-    dot = sum(counter_a[k] * counter_b.get(k, 0) for k in counter_a)
-    norm_a = math.sqrt(sum(v * v for v in counter_a.values()))
-    norm_b = math.sqrt(sum(v * v for v in counter_b.values()))
+    cur.execute("""
+        SELECT id, timestamp_start AS timestamp, description_embedding
+        FROM sequence_description_varied
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
 
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
+    cur.execute("""
+        SELECT id, timestamp, description_embedding
+        FROM snapshot_description
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
 
-    return dot / (norm_a * norm_b)
+    cur.execute("""
+        SELECT id, timestamp, description_embedding
+        FROM full_frame_description
+        WHERE description_embedding IS NOT NULL
+    """)
+    results.extend(cur.fetchall())
+    for row in results:
+        desc_embedding = json.loads(row["description_embedding"])
+        score = cosine_similarity(query_embedding, desc_embedding)
 
-
-def jaccard_similarity(set_a: set, set_b: set) -> float:
-    if not set_a or not set_b:
-        return 0.0
-    inter = len(set_a & set_b)
-    union = len(set_a | set_b)
-    if union == 0:
-        return 0.0
-    return inter / union
-
-def score(norm_query, query_tokens, query_token_set, query_trigrams, norm_desc: str) -> float:
-    if not norm_query or not norm_desc:
-        return 0.0
-
-    desc_tokens = tokenize(norm_desc)
-    desc_token_set = set(desc_tokens)
-
-    # Tar snittet på antalet gemensama ord. query_token_set = {"server", "problem"}
-    #desc_token_set = {"server", "startade", "om"} 
-    # 1 gemensamt ord, 4 olika ord, 1/4 = 0.25
-    token_jaccard = jaccard_similarity(query_token_set, desc_token_set)
+        if best_score is None or score > best_score:
+            best_score = score
+            best_timestamp = row["timestamp"]
     
-    # Ger poäng på ord som är lika stavade
-    desc_trigrams = Counter(char_ngrams(norm_desc, 3))
-    trigram_cos = cosine_similarity(query_trigrams, desc_trigrams)
-    
-    # Ger extra poäng ifall hela söktexten finns i description
-    substring_bonus = 0.25 if norm_query in norm_desc else 0.0
+    conn.close()
+    return best_timestamp
 
-    # Ge extra poäng om query tokens är prefix till ord i description. Serv get poäng om server finns
-    prefix_bonus = 0.0
-    for qtok in query_tokens:
-        if any(dtok.startswith(qtok) for dtok in desc_tokens):
-            prefix_bonus += 0.05
+def seed_test_data():
+    now = datetime.now(RECORDINGS_TZ)
 
-    exact_token_bonus = 0.0
-    # Ge extra poäng ifall ord finns i både query och description
-    common_tokens = query_token_set & desc_token_set
-    if common_tokens:
-        exact_token_bonus = min(0.2, 0.05 * len(common_tokens))
+    events = [
+        {
+            "start": now + timedelta(minutes=0),
+            "end": now + timedelta(minutes=1),
+            "uniform": "En person går genom rummet i jämn takt.",
+            "varied": "En person syns först vid dörren och rör sig sedan mot mitten av rummet.",
+            "snapshot": "En person står nära dörröppningen.",
+            "full_frame": "Rummet är synligt i helbild med en person som passerar genom scenen.",
+        },
+        {
+            "start": now + timedelta(minutes=2),
+            "end": now + timedelta(minutes=3),
+            "uniform": "Två personer sitter stilla vid ett bord.",
+            "varied": "Två personer kommer in, sätter sig vid bordet och verkar samtala.",
+            "snapshot": "Två personer sitter vid bordet.",
+            "full_frame": "Helbild av rummet där två personer sitter mittemot varandra.",
+        },
+        {
+            "start": now + timedelta(minutes=4),
+            "end": now + timedelta(minutes=5),
+            "uniform": "En person plockar upp ett föremål från golvet.",
+            "varied": "En person böjer sig ner, tar upp något från golvet och reser sig igen.",
+            "snapshot": "En person är böjd mot golvet.",
+            "full_frame": "Rummet i helbild med en person nära golvet i ena delen av scenen.",
+        },
+        {
+            "start": now + timedelta(minutes=6),
+            "end": now + timedelta(minutes=7),
+            "uniform": "En dörr öppnas och stängs.",
+            "varied": "Dörren öppnas kort, någon tittar in och dörren stängs igen.",
+            "snapshot": "En öppen dörr syns i bilden.",
+            "full_frame": "Helbild av rummet där dörren längst bort står öppen.",
+        },
+        {
+            "start": now + timedelta(minutes=8),
+            "end": now + timedelta(minutes=9),
+            "uniform": "En person står stilla mitt i rummet.",
+            "varied": "En person går in i rummet, stannar i mitten och tittar runt.",
+            "snapshot": "En person står i mitten av rummet.",
+            "full_frame": "Rummet syns i helbild med en person centralt placerad.",
+        },
+        {
+            "start": now + timedelta(minutes=10),
+            "end": now + timedelta(minutes=11),
+            "uniform": "En person passerar snabbt genom rummet.",
+            "varied": "En person springer från vänster till höger och försvinner snabbt ur bild.",
+            "snapshot": "En person är i rörelse nära höger sida.",
+            "full_frame": "Helbild där en person snabbt korsar rummet.",
+        },
+        {
+            "start": now + timedelta(minutes=12),
+            "end": now + timedelta(minutes=13),
+            "uniform": "Ett tomt rum utan synlig aktivitet.",
+            "varied": "Ingen person syns och scenen förblir oförändrad under hela intervallet.",
+            "snapshot": "Rummet är tomt.",
+            "full_frame": "Helbild av ett tomt rum utan rörelse.",
+        },
+        {
+            "start": now + timedelta(minutes=14),
+            "end": now + timedelta(minutes=15),
+            "uniform": "En person sitter ner på en stol.",
+            "varied": "En person går fram till en stol och sätter sig ner.",
+            "snapshot": "En person sitter på en stol.",
+            "full_frame": "Rummet visas i helbild med en sittande person nära ena väggen.",
+        },
+        {
+            "start": now + timedelta(minutes=16),
+            "end": now + timedelta(minutes=17),
+            "uniform": "Två personer går in i rummet.",
+            "varied": "Två personer kommer in genom dörren och stannar nära ingången.",
+            "snapshot": "Två personer står nära dörren.",
+            "full_frame": "Helbild av rummet med två personer vid entrén.",
+        },
+        {
+            "start": now + timedelta(minutes=18),
+            "end": now + timedelta(minutes=19),
+            "uniform": "En person lämnar rummet.",
+            "varied": "En person går mot dörren och försvinner ut ur scenen.",
+            "snapshot": "En person är nära utgången.",
+            "full_frame": "Rummet i helbild där en person precis är på väg ut genom dörren.",
+        },
+    ]
 
-    return (
-        0.45 * trigram_cos +
-        0.35 * token_jaccard +
-        substring_bonus +
-        prefix_bonus +
-        exact_token_bonus
-    )
+    for event in events:
+        save_description_bundle(
+            timestamp_start=event["start"],
+            timestamp_end=event["end"],
+            created_at=datetime.now(RECORDINGS_TZ),
+            uniform_llm_description=event["uniform"],
+            varied_llm_description=event["varied"],
+            snapshot_llm_description=event["snapshot"],
+            full_frame_llm_description=event["full_frame"],
+            uniform_timestamps=[event["start"], event["end"]],
+            varied_timestamps=[event["start"], event["end"]],
+            snapshot_timestamp=event["start"],
+            full_frame_timestamp=event["end"],
+        )    
 
 if __name__ == "__main__":
-    uvicorn.run("database:app", reload=True)
+    seed_test_data()
+    #uvicorn.run("database:app", reload=True)

@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 
 export default function FullFrameImage({ searchString }) {
-  const [imgSrc, setImgSrc] = useState(null);
+  const [imageData, setImageData] = useState({ src: null, timestamp: null });
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 // Whenever the search string changes, we want to fetch a new image
   useEffect(() => {
     if (!searchString) {
-      setImgSrc(null);
+      setImageData({ src: null, timestamp: null });
       setError(null);
       setLoading(false);
       return;
@@ -18,7 +18,7 @@ export default function FullFrameImage({ searchString }) {
       try {
         setLoading(true);
         setError(null);
-        const USE_MOCK = true;
+        
 
         
 
@@ -26,9 +26,12 @@ export default function FullFrameImage({ searchString }) {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         //HÄR VILL VI HÄMTA EN FULLFRAME 
-        setImgSrc(`data:image/jpeg;base64,${data.image}`);
+        setImageData({
+          src: `data:image/jpeg;base64,${data.image}`,
+          timestamp: data.timestamp || "Ingen tidsstämpel tillgänglig"
+        });
       } catch (e) {
-        setImgSrc(null);
+        setImageData({ src: null, timestamp: null });
         setError(e.message);
       } finally {
         setLoading(false);
@@ -41,19 +44,21 @@ export default function FullFrameImage({ searchString }) {
   //if (!searchString) return <p>FullFrameIMG.</p>;
 
   if (error) return <p>Failed to load image: {error}</p>;
-  if (loading || !imgSrc) return <p>Loading image...</p>;
+  if (loading || !imageData.src) return <p>Loading image...</p>;
 
   return (
     // Display the image with a title
     <div className="App flex flex-col">
       <h2>{searchString}</h2>
       <img
-        src={imgSrc}
+        src={imageData.src}
         alt={searchString}
         style={{ maxWidth: "500px", width: "100%", borderRadius: "12px, " }}
       />
-      <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
-      <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
+      <p className="text-l font-bold text-[#FFCC00] mb-2">
+        Timestamp: <span className="font-normal text-white">{imageData.timestamp}</span>
+      </p>
+      <p className="text-l font-bold text-[#FFCC00] mb-2">Description:</p>
 
     </div>
   );

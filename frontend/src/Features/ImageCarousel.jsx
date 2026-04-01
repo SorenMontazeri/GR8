@@ -1,92 +1,80 @@
 import { useState, useEffect } from "react";
 
 export default function ImageCarousel({ searchString }) {
-  //const [images, setImages] = useState([]); 
+  const [images, setImages] = useState([]); 
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  const testImages = ["/jpg1.jpg", "/jpg2.jpg", "/jpg3.jpg"];
-  // useEffect(() => {
-  //   if (!searchString) return;
-  //   async function fetchSeq() {
-  //     try {
-  //       const res = await fetch(`http://localhost:8000/api/sequence/${searchString}`);
-  //       const data = await res.json();
-  //       setImages(data.images || []);
-  //       setCurrentIndex(0);
-  //     } catch (e) { console.error(e); }
-  //   }
-  //   fetchSeq();
-  // }, [searchString]);
+  useEffect(() => {
+    // Om ingen söksträng finns, töm bilderna och gör inget mer
+    if (!searchString) {
+      setImages([]);
+      return;
+    }
 
-  // if (!searchString || images.length === 0) return <div className="text-white">Ingen sekvens laddad</div>;
-
-//   return (
-//     <div className="flex flex-col items-center gap-2">
-//       <div className="flex items-center gap-4">
-//         <button onClick={() => setCurrentIndex((prev) => (prev - 1 + images.length) % images.length)} 
-//                 className="bg-[#FFCC00] p-2 rounded-full text-black font-bold">{"<"}</button>
+    async function fetchSeq() {
+      setLoading(true);
+      try {
+        const res = await fetch(`http://localhost:8000/api/sequence/${searchString}`);
+        if (!res.ok) throw new Error("Kunde inte hämta bilder");
         
-//         <img src={`data:image/jpeg;base64,${images[currentIndex]}`} 
-//              className="max-w-[300px] border-2 border-[#FFCC00] rounded" />
+        const data = await res.json();
         
-//         <button onClick={() => setCurrentIndex((prev) => (prev + 1) % images.length)} 
-//                 className="bg-[#FFCC00] p-2 rounded-full text-black font-bold">{">"}</button>
-//       </div>
-//       <span className="text-[#FFCC00]">{currentIndex + 1} / {images.length}</span>
-//     </div>
-//   );
-// }
+        // Vi antar att data.images är en array med base64-strängar
+        setImages(data.images || []);
+        setCurrentIndex(0); // Återställ till första bilden vid ny sökning
+      } catch (e) { 
+        console.error("Fetch error:", e); 
+        setImages([]);
+      } finally {
+        setLoading(false);
+      }
+    }
 
+    fetchSeq();
+  }, [searchString]);
 
+  // Visningslogik för tomma tillstånd
+  if (!searchString) return <div className="text-white italic">Skriv in något för att söka...</div>;
+  if (loading) return <div className="text-[#FFCC00] animate-pulse">Laddar sekvens...</div>;
+  if (images.length === 0) return <div className="text-white">Ingen sekvens hittades för "{searchString}"</div>;
 
+  // Navigeringsfunktioner
+  const goNext = () => setCurrentIndex((prev) => (prev + 1) % images.length);
+  const goPrev = () => setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
 
-
-return (
-    <div className="flex flex-col items-center gap-2">
+  return (
+    <div className="flex flex-col items-center gap-4">
       <div className="flex items-center gap-4">
         <button 
-          onClick={() => setCurrentIndex((prev) => (prev - 1 + testImages.length) % testImages.length)} 
-          className="bg-[#FFCC00] p-2 rounded-full text-black font-bold"
+          onClick={goPrev} 
+          className="bg-[#FFCC00] p-3 rounded-full text-black font-bold hover:scale-110 transition-transform"
         >
           {"<"}
         </button>
         
-        {/* src är nu bara en enkel sträng från din array */}
-        <img 
-          src={testImages[currentIndex]} 
-          alt="Carousel"
-          className="max-w-[300px] border-2 border-[#FFCC00] rounded" 
-        />
+        <div className="relative">
+          <img 
+            src={`data:image/jpeg;base64,${images[currentIndex]}`} 
+            alt={`Sekvens bild ${currentIndex + 1}`}
+            className="w-[400px] h-[300px] object-cover border-4 border-[#FFCC00] rounded-lg shadow-lg" 
+          />
+          <div className="absolute bottom-2 right-2 bg-black/50 text-white px-2 py-1 rounded text-xs">
+            {currentIndex + 1} / {images.length}
+          </div>
+        </div>
         
         <button 
-          onClick={() => setCurrentIndex((prev) => (prev + 1) % testImages.length)} 
-          className="bg-[#FFCC00] p-2 rounded-full text-black font-bold"
+          onClick={goNext} 
+          className="bg-[#FFCC00] p-3 rounded-full text-black font-bold hover:scale-110 transition-transform"
         >
           {">"}
         </button>
       </div>
-      <span className="text-[#FFCC00]">{currentIndex + 1} / {testImages.length}</span>
+      
+      <p className="text-[#FFCC00] font-medium uppercase tracking-widest text-sm">
+        Visar resultat för: {searchString}
+      </p>
     </div>
   );
 }
-
-// return (
-//     <div className="flex flex-col items-center gap-2">
-//       <div className="flex items-center gap-4">
-//         <button onClick={() => setCurrentIndex((prev) => (prev - 1 + testImages.length) % testImages.length)} 
-//                 className="bg-[#FFCC00] p-2 rounded-full text-black font-bold">{"<"}</button>
-        
-//         {/* <img src={testImages[currentIndex]}
-//              className="max-w-[300px] border-2 border-[#FFCC00] rounded" /> */}
-//         <img
-//   src={testImages[currentIndex]}
-//   alt={`Bild ${currentIndex + 1}`}
-//   className="w-[300px] h-[200px] object-cover border-2 border-[#FFCC00] rounded"
-// />
-//         <button onClick={() => setCurrentIndex((prev) => (prev + 1) % testImages.length)} 
-//                 className="bg-[#FFCC00] p-2 rounded-full text-black font-bold">{">"}</button>
-//       </div>
-//       <span className="text-[#FFCC00]">{currentIndex + 1} / {testImages.length}</span>
-//     </div>
-//   );
-// }

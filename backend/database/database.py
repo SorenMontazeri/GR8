@@ -24,24 +24,24 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-FEEDBACK_TABLES = {
-    "uniform": "sequence_description_uniform",
-    "varied": "sequence_description_varied",
-    "snapshot": "snapshot_description",
-    "full_frame": "full_frame_description",
+FEEDBACK_TARGETS = {
+    "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
+    "varied": ("sequence_description_varied", "sequence_description_varied_id"),
+    "snapshot": ("snapshot_description", "snapshot_description_id"),
+    "full_frame": ("full_frame_description", "full_frame_description_id"),
 }
 
 
 class FeedbackRequest(BaseModel):
     description_type: str
-    id: int
-    vote: str  # like / dislike
+    id: int  # description_group.id
+    feedback: int  # 1 or -1
 
 
 @app.get("/api/image/{name}")
@@ -59,32 +59,45 @@ def get_image(name: str):
 
 @app.post("/api/feedback", status_code=204)
 def post_feedback(payload: FeedbackRequest):
-    vote = payload.vote.strip().lower()
-    if vote not in ("like", "dislike"):
-        raise HTTPException(status_code=400, detail="vote must be 'like' or 'dislike'")
-
-    feedback_value = 1 if vote == "like" else -1
-    update_feedback(payload.description_type, payload.id, feedback_value)
+    update_feedback(payload.description_type, payload.id, payload.feedback)
 
 
-def update_feedback(description_type: str, item_id: int, feedback_value: int) -> None:
-    table = FEEDBACK_TABLES.get(description_type.strip().lower())
-    if table is None:
+def update_feedback(description_type: str, group_id: int, feedback_value: int) -> None:
+    target = FEEDBACK_TARGETS.get(description_type.strip().lower())
+    if target is None:
         raise HTTPException(
             status_code=400,
             detail="description_type must be one of: uniform, varied, snapshot, full_frame",
         )
+    table, group_fk_column = target
 
     create_database()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute(f"UPDATE {table} SET feedback = ? WHERE id = ?;", (feedback_value, item_id))
-    conn.commit()
+    cur.execute(
+        f"SELECT {group_fk_column} FROM description_group WHERE id = ?;",
+        (group_id,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        conn.close()
+        raise HTTPException(status_code=404, detail=f"No description_group found with id={group_id}")
+
+    target_row_id = row[0]
+    if target_row_id is None:
+        conn.close()
+        raise HTTPException(
+            status_code=404,
+            detail=f"description_group id={group_id} has no linked {description_type} row",
+        )
+
+    cur.execute(f"UPDATE {table} SET feedback = ? WHERE id = ?;", (feedback_value, target_row_id))
     updated = cur.rowcount
+    conn.commit()
     conn.close()
 
     if updated == 0:
-        raise HTTPException(status_code=404, detail=f"No row found with id={item_id} in {table}")
+        raise HTTPException(status_code=404, detail=f"No row found with id={target_row_id} in {table}")
 
 
 def create_database() -> None:
@@ -546,24 +559,31 @@ def score(norm_query, query_tokens, query_token_set, query_trigrams, norm_desc: 
         exact_token_bonus
     )
 
+
+def main() -> None:
+    update_feedback("uniform", 1, 1)
+
+
 if __name__ == "__main__":
-    save_description_bundle(
-        datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
-        datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
-        datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
-        "Uniform LLM Description",
-        "Varied LLM Description",
-        "Snapshot LLM Description",
-        "Full Frame LLM Description",
-        [
-            datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
-            datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
-        ],
-        [
-            datetime(2026, 2, 9, 11, 51, 2, tzinfo=RECORDINGS_TZ),
-            datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
-        ],
-        snapshot_timestamp=datetime(2026, 2, 9, 11, 51, 3, tzinfo=RECORDINGS_TZ),
-        full_frame_timestamp=datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
-    )
-    #uvicorn.run("database:app", reload=True)
+    # save_description_bundle(
+    #     datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+    #     datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+    #     datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+    #     "Uniform LLM Description",
+    #     "Varied LLM Description",
+    #     "Snapshot LLM Description",
+    #     "Full Frame LLM Description",
+    #     [
+    #         datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+    #         datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+    #     ],
+    #     [
+    #         datetime(2026, 2, 9, 11, 51, 2, tzinfo=RECORDINGS_TZ),
+    #         datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+    #     ],
+    #     snapshot_timestamp=datetime(2026, 2, 9, 11, 51, 3, tzinfo=RECORDINGS_TZ),
+    #     full_frame_timestamp=datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+    # )
+
+    main()
+    # uvicorn.run("database:app", reload=True)

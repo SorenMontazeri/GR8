@@ -547,4 +547,23 @@ def score(norm_query, query_tokens, query_token_set, query_trigrams, norm_desc: 
     )
 
 if __name__ == "__main__":
-    uvicorn.run("database:app", reload=True)
+    save_description_bundle(
+        datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+        datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+        datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+        "Uniform LLM Description",
+        "Varied LLM Description",
+        "Snapshot LLM Description",
+        "Full Frame LLM Description",
+        [
+            datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+            datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+        ],
+        [
+            datetime(2026, 2, 9, 11, 51, 2, tzinfo=RECORDINGS_TZ),
+            datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+        ],
+        snapshot_timestamp=datetime(2026, 2, 9, 11, 51, 3, tzinfo=RECORDINGS_TZ),
+        full_frame_timestamp=datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+    )
+    #uvicorn.run("database:app", reload=True)

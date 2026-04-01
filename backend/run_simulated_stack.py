@@ -65,7 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rtsp-url", default="rtsp://127.0.0.1:8554/1", help="RTSP read URL for ingestion.")
     parser.add_argument("--broker-host", default="127.0.0.1", help="MQTT broker host.")
     parser.add_argument("--broker-port", type=int, default=1883, help="MQTT broker port.")
-    parser.add_argument("--segment-seconds", type=int, default=5, help="Recording segment duration.")
+    parser.add_argument("--segment-seconds", type=int, default=10, help="Recording segment duration.")
     parser.add_argument("--stats-interval", type=float, default=10.0, help="How often ingestion stats are printed.")
     parser.add_argument("--api-key", help="API key for real analysis. Falls back to FACADE_API_KEY env var.")
     parser.add_argument("--model", default="prisma_gemini_pro", help="LLM model name.")

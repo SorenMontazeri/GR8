@@ -19,7 +19,6 @@ def run(command: list[str], cwd: Path | None = None) -> None:
     print(f"Running: {' '.join(command)}")
     subprocess.run(command, cwd=cwd, check=True)
 
-
 def venv_python() -> Path:
     if os.name == "nt":
         return VENV_DIR / "Scripts" / "python.exe"

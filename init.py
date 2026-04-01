@@ -25,11 +25,8 @@ def venv_python() -> Path:
         return VENV_DIR / "Scripts" / "python.exe"
     return VENV_DIR / "bin" / "python"
 
-
-def venv_pip() -> Path:
-    if os.name == "nt":
-        return VENV_DIR / "Scripts" / "pip.exe"
-    return VENV_DIR / "bin" / "pip"
+def pip_command(*args: str) -> list[str]:
+    return [str(venv_python()), "-m", "pip", *args]
 
 
 def ensure_venv() -> None:
@@ -41,9 +38,8 @@ def ensure_venv() -> None:
 
 
 def install_backend_packages() -> None:
-    pip_path = venv_pip()
-    run([str(pip_path), "install", "--upgrade", "pip"])
-    run([str(pip_path), "install", "-r", str(BACKEND_DIR / "requirements.txt")])
+    run(pip_command("install", "--upgrade", "pip"))
+    run(pip_command("install", "-r", str(BACKEND_DIR / "requirements.txt")))
 
 
 def download_model() -> None:

@@ -122,7 +122,7 @@ def create_database() -> None:
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
             llm_description TEXT NOT NULL,
-            description_embedding TSXT,
+            description_embedding TEXT,
             feedback INTEGER DEFAULT 0
         );
 
@@ -209,7 +209,7 @@ def save_sequence_description_uniform(
     created_at: datetime | str,
     timestamps: list[datetime | str],
     llm_description: str,
-    description_embedding: bytes | None = None,
+    description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -246,7 +246,7 @@ def save_sequence_description_varied(
     created_at: datetime | str,
     timestamps: list[datetime | str],
     llm_description: str,
-    description_embedding: bytes | None = None,
+    description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -281,7 +281,7 @@ def save_snapshot_description(
     timestamp: datetime | str,
     created_at: datetime | str,
     llm_description: str,
-    description_embedding: bytes | None = None,
+    description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -306,7 +306,7 @@ def save_full_frame_description(
     timestamp: datetime | str,
     created_at: datetime | str,
     llm_description: str,
-    description_embedding: bytes | None = None,
+    description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -628,5 +628,24 @@ def seed_test_data():
         )    
 
 if __name__ == "__main__":
-    seed_test_data()
+
+    save_description_bundle(
+        datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+        datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+        datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+        "Uniform LLM Description",
+        "Varied LLM Description",
+        "Snapshot LLM Description",
+        "Full Frame LLM Description",
+        [
+            datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
+            datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
+        ],
+        [
+            datetime(2026, 2, 9, 11, 51, 2, tzinfo=RECORDINGS_TZ),
+            datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+        ],
+        snapshot_timestamp=datetime(2026, 2, 9, 11, 51, 3, tzinfo=RECORDINGS_TZ),
+        full_frame_timestamp=datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
+    )
     #uvicorn.run("database:app", reload=True)

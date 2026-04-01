@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-export default function Image({ searchString }) {
+export default function Snapshot({ searchString }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -34,7 +34,7 @@ export default function Image({ searchString }) {
     load();
   }, [searchString]);
 
-  if (!searchString) return <p>Skriv ett namn och klicka på knappen.</p>;
+  if (!searchString) return <p>Snapshot.</p>;
 
   if (error) return <p>Failed to load image: {error}</p>;
   if (loading || !imgSrc) return <p>Loading image...</p>;

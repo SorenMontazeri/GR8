@@ -9,7 +9,6 @@ pytest
 pytest-cov
 httpx
 python-dotenv
-amqtt
 
 >>>>>>> 7360e5a (TESTING WINDOWS SIMULATION SCRIPT)
 av==16.1.0

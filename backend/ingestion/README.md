@@ -260,7 +260,6 @@ Det scriptet startar:
 
 och skriver sedan ut RTSP-URL och MQTT-topic som ingestion kan ansluta mot.
 
-
 För att starta ingestion separat mot en live eller simulerad källa:
 
 ```bash

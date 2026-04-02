@@ -16,7 +16,7 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
-RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
+RECORDINGS_DIR = str(Path(__file__).resolve().parent / "recordings/1")
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -50,17 +50,137 @@ class FeedbackRequest(BaseModel):
     feedback: int  # 1 or -1
 
 
-#@app.get("/api/image/{name}")
-def get_image(name: str):
-    ts = timestamp_from_description(name)
-    if ts is None:
-        raise HTTPException(status_code=404, detail="No timestamp for this description")
+@app.get("/api/event/{query}")
+def get_events(query: str):
+    best_event = find_best_event(query)
+    if best_event is None:
+        raise HTTPException(status_code=404, detail=f"No events found for query '{query}'")
 
-    t = datetime.fromisoformat(ts)
-    try:
-        return {"name": name, "image": image_from_timestamp(t)}
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT
+            dg.id AS dg_id,
+            dg.timestamp_start AS dg_timestamp_start,
+            dg.timestamp_end AS dg_timestamp_end,
+            dg.sequence_description_uniform_id AS dg_uniform_id,
+            dg.sequence_description_varied_id AS dg_varied_id,
+            dg.snapshot_description_id AS dg_snapshot_id,
+            dg.full_frame_description_id AS dg_full_frame_id,
+
+            u.id AS u_id,
+            u.timestamp_start AS u_timestamp_start,
+            u.timestamp_end AS u_timestamp_end,
+            u.created_at AS u_created_at,
+            u.timestamps_json AS u_timestamps_json,
+            u.llm_description AS u_llm_description,
+            u.description_embedding AS u_description_embedding,
+            u.feedback AS u_feedback,
+
+            v.id AS v_id,
+            v.timestamp_start AS v_timestamp_start,
+            v.timestamp_end AS v_timestamp_end,
+            v.created_at AS v_created_at,
+            v.timestamps_json AS v_timestamps_json,
+            v.llm_description AS v_llm_description,
+            v.description_embedding AS v_description_embedding,
+            v.feedback AS v_feedback,
+
+            s.id AS s_id,
+            s.timestamp AS s_timestamp,
+            s.snapshot_image_base64 AS s_snapshot_image_base64,
+            s.created_at AS s_created_at,
+            s.llm_description AS s_llm_description,
+            s.description_embedding AS s_description_embedding,
+            s.feedback AS s_feedback,
+
+            f.id AS f_id,
+            f.timestamp AS f_timestamp,
+            f.created_at AS f_created_at,
+            f.llm_description AS f_llm_description,
+            f.description_embedding AS f_description_embedding,
+            f.feedback AS f_feedback
+        FROM description_group dg
+        LEFT JOIN sequence_description_uniform u ON u.id = dg.sequence_description_uniform_id
+        LEFT JOIN sequence_description_varied v ON v.id = dg.sequence_description_varied_id
+        LEFT JOIN snapshot_description s ON s.id = dg.snapshot_description_id
+        LEFT JOIN full_frame_description f ON f.id = dg.full_frame_description_id
+        WHERE dg.id = ?;
+        """,
+        (best_event["group_id"],),
+    )
+    row = cur.fetchone()
+    conn.close()
+
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"No description_group found with id={best_event['group_id']}")
+
+    uniform_timestamps = _parse_json(row["u_timestamps_json"]) if row["u_timestamps_json"] else []
+    varied_timestamps = _parse_json(row["v_timestamps_json"]) if row["v_timestamps_json"] else []
+    uniform_images = _images_from_timestamps(uniform_timestamps)
+    varied_images = _images_from_timestamps(varied_timestamps)
+    if row["s_snapshot_image_base64"] is not None:
+        snapshot_image = row["s_snapshot_image_base64"]
+    else:
+        snapshot_image = _safe_image_from_iso(row["s_timestamp"]) if row["s_timestamp"] is not None else None
+    full_frame_image = _safe_image_from_iso(row["f_timestamp"]) if row["f_timestamp"] is not None else None
+
+    return {
+        "query": query,
+        "match": best_event,
+        "description_group": {
+            "id": row["dg_id"],
+            "timestamp_start": row["dg_timestamp_start"],
+            "timestamp_end": row["dg_timestamp_end"],
+            "sequence_description_uniform_id": row["dg_uniform_id"],
+            "sequence_description_varied_id": row["dg_varied_id"],
+            "snapshot_description_id": row["dg_snapshot_id"],
+            "full_frame_description_id": row["dg_full_frame_id"],
+        },
+        "uniform": {
+            "id": row["u_id"],
+            "timestamp_start": row["u_timestamp_start"],
+            "timestamp_end": row["u_timestamp_end"],
+            "created_at": row["u_created_at"],
+            "timestamps_json": uniform_timestamps,
+            "images": uniform_images,
+            "llm_description": row["u_llm_description"],
+            "description_embedding": _parse_json(row["u_description_embedding"]),
+            "feedback": row["u_feedback"],
+        } if row["u_id"] is not None else None,
+        "varied": {
+            "id": row["v_id"],
+            "timestamp_start": row["v_timestamp_start"],
+            "timestamp_end": row["v_timestamp_end"],
+            "created_at": row["v_created_at"],
+            "timestamps_json": varied_timestamps,
+            "images": varied_images,
+            "llm_description": row["v_llm_description"],
+            "description_embedding": _parse_json(row["v_description_embedding"]),
+            "feedback": row["v_feedback"],
+        } if row["v_id"] is not None else None,
+        "snapshot": {
+            "id": row["s_id"],
+            "timestamp": row["s_timestamp"],
+            "image": snapshot_image,
+            "created_at": row["s_created_at"],
+            "llm_description": row["s_llm_description"],
+            "description_embedding": _parse_json(row["s_description_embedding"]),
+            "feedback": row["s_feedback"],
+        } if row["s_id"] is not None else None,
+        "full_frame": {
+            "id": row["f_id"],
+            "timestamp": row["f_timestamp"],
+            "image": full_frame_image,
+            "created_at": row["f_created_at"],
+            "llm_description": row["f_llm_description"],
+            "description_embedding": _parse_json(row["f_description_embedding"]),
+            "feedback": row["f_feedback"],
+        } if row["f_id"] is not None else None,
+    }
 
 
 @app.post("/api/feedback", status_code=204)
@@ -142,6 +262,7 @@ def create_database() -> None:
         CREATE TABLE IF NOT EXISTS snapshot_description (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
+            snapshot_image_base64 TEXT,
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
@@ -176,6 +297,11 @@ def create_database() -> None:
         );
         """
     )
+    try:
+        cur.execute("ALTER TABLE snapshot_description ADD COLUMN snapshot_image_base64 TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
     conn.commit()
     conn.close()
 
@@ -198,22 +324,6 @@ def save_analysis(created_at: datetime, description: str) -> int:
     row_id = cur.lastrowid
     conn.close()
     return row_id
-
-
-def timestamp_from_description(description: str) -> str | None:
-    create_database()
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT created_at FROM analysis WHERE description = ? ORDER BY id LIMIT 1;",
-        (description,),
-    )
-    row = cur.fetchone()
-    conn.close()
-
-    if row is None:
-        return None
-    return row[0]
 
 
 def save_sequence_description_uniform(
@@ -294,6 +404,7 @@ def save_snapshot_description(
     timestamp: datetime | str,
     created_at: datetime | str,
     llm_description: str,
+    snapshot_image_base64: str | None = None,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
@@ -304,10 +415,10 @@ def save_snapshot_description(
     cur.execute(
         """
         INSERT INTO snapshot_description (
-            timestamp, created_at, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?);
+            timestamp, snapshot_image_base64, created_at, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?);
         """,
-        (_to_iso(timestamp), _to_iso(created_at), llm_description, description_embedding, feedback),
+        (_to_iso(timestamp), snapshot_image_base64, _to_iso(created_at), llm_description, description_embedding, feedback),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -386,7 +497,8 @@ def save_description_bundle(
     uniform_timestamps: list[datetime | str] | None = None,
     varied_timestamps: list[datetime | str] | None = None,
     snapshot_timestamp: datetime | str | None = None,
-    full_frame_timestamp: datetime | str | None = None
+    full_frame_timestamp: datetime | str | None = None,
+    snapshot_image_base64: str | None = None,
 ) -> dict[str, int]:
     start_iso = _to_iso(timestamp_start)
     end_iso = _to_iso(timestamp_end)
@@ -420,6 +532,7 @@ def save_description_bundle(
         timestamp=snapshot_timestamp,
         created_at=created_at,
         llm_description=snapshot_llm_description,
+        snapshot_image_base64=snapshot_image_base64,
         description_embedding=json.dumps(embed(snapshot_llm_description)),
     )
     full_frame_id = save_full_frame_description(
@@ -491,175 +604,132 @@ def embed(text: str):
 def cosine_similarity(a, b):
     return sum(x * y for x, y in zip(a, b))
 
-def find_best_timestamp(query):
+def _parse_json(value):
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return value
+
+
+def _safe_image_from_iso(timestamp_value):
+    if timestamp_value is None:
+        return None
+    ts_text = timestamp_value if isinstance(timestamp_value, str) else _to_iso(timestamp_value)
+    try:
+        return image_from_timestamp(datetime.fromisoformat(ts_text))
+    except Exception:
+        return None
+
+
+def _images_from_timestamps(timestamps):
+    if not isinstance(timestamps, list):
+        return []
+    images = []
+    for ts in timestamps:
+        images.append(_safe_image_from_iso(ts))
+    return images
+
+
+def find_best_event(query):
     query_embedding = embed(query)
     create_database()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     best_score = None
-    best_timestamp = None
-    results = []
+    best_group_id = None
+    best_matched_row_id = None
+    best_matched_type = None
 
-    cur.execute("""
-        SELECT id, timestamp_start AS timestamp, description_embedding
-        FROM sequence_description_uniform
-        WHERE description_embedding IS NOT NULL
-    """)
-    results.extend(cur.fetchall())
+    cur.execute(
+        """
+        SELECT
+            dg.id AS group_id,
+            dg.sequence_description_uniform_id AS uniform_id,
+            dg.sequence_description_varied_id AS varied_id,
+            dg.snapshot_description_id AS snapshot_id,
+            dg.full_frame_description_id AS full_frame_id,
+            u.description_embedding AS uniform_embedding,
+            v.description_embedding AS varied_embedding,
+            s.description_embedding AS snapshot_embedding,
+            f.description_embedding AS full_frame_embedding
+        FROM description_group dg
+        LEFT JOIN sequence_description_uniform u ON u.id = dg.sequence_description_uniform_id
+        LEFT JOIN sequence_description_varied v ON v.id = dg.sequence_description_varied_id
+        LEFT JOIN snapshot_description s ON s.id = dg.snapshot_description_id
+        LEFT JOIN full_frame_description f ON f.id = dg.full_frame_description_id
+        """
+    )
 
-    cur.execute("""
-        SELECT id, timestamp_start AS timestamp, description_embedding
-        FROM sequence_description_varied
-        WHERE description_embedding IS NOT NULL
-    """)
-    results.extend(cur.fetchall())
-
-    cur.execute("""
-        SELECT id, timestamp, description_embedding
-        FROM snapshot_description
-        WHERE description_embedding IS NOT NULL
-    """)
-    results.extend(cur.fetchall())
-
-    cur.execute("""
-        SELECT id, timestamp, description_embedding
-        FROM full_frame_description
-        WHERE description_embedding IS NOT NULL
-    """)
-    results.extend(cur.fetchall())
-    for row in results:
-        desc_embedding = json.loads(row["description_embedding"])
-        score = cosine_similarity(query_embedding, desc_embedding)
-
-        if best_score is None or score > best_score:
-            best_score = score
-            best_timestamp = row["timestamp"]
-    
+    rows = cur.fetchall()
     conn.close()
-    return best_timestamp
+    for row in rows:
+        candidates = [
+            ("uniform", row["uniform_id"], row["uniform_embedding"]),
+            ("varied", row["varied_id"], row["varied_embedding"]),
+            ("snapshot", row["snapshot_id"], row["snapshot_embedding"]),
+            ("full_frame", row["full_frame_id"], row["full_frame_embedding"]),
+        ]
+
+        for desc_type, desc_id, embedding_text in candidates:
+            if desc_id is None or embedding_text is None:
+                continue
+            desc_embedding = _parse_json(embedding_text)
+            if not isinstance(desc_embedding, list):
+                continue
+
+            score = cosine_similarity(query_embedding, desc_embedding)
+            if best_score is None or score > best_score:
+                best_score = score
+                best_group_id = row["group_id"]
+                best_matched_row_id = desc_id
+                best_matched_type = desc_type
+
+    if best_group_id is None:
+        return None
+
+    return {
+        "group_id": best_group_id,
+        "score": best_score,
+        "matched_type": best_matched_type,
+        "matched_row_id": best_matched_row_id,
+    }
+
 
 def seed_test_data():
-    now = datetime.now(RECORDINGS_TZ)
+    # Reference recording: recordings/1/D2026-02-09-T11-51-00.mp4
+    base_video_time = datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ)
+    event_start = base_video_time + timedelta(seconds=1)
+    event_end = base_video_time + timedelta(seconds=9)
+    snapshot_ts = base_video_time + timedelta(seconds=3)
+    full_frame_ts = base_video_time + timedelta(seconds=8)
 
-    events = [
-        {
-            "start": now + timedelta(minutes=0),
-            "end": now + timedelta(minutes=1),
-            "uniform": "En person går genom rummet i jämn takt.",
-            "varied": "En person syns först vid dörren och rör sig sedan mot mitten av rummet.",
-            "snapshot": "En person står nära dörröppningen.",
-            "full_frame": "Rummet är synligt i helbild med en person som passerar genom scenen.",
-        },
-        {
-            "start": now + timedelta(minutes=2),
-            "end": now + timedelta(minutes=3),
-            "uniform": "Två personer sitter stilla vid ett bord.",
-            "varied": "Två personer kommer in, sätter sig vid bordet och verkar samtala.",
-            "snapshot": "Två personer sitter vid bordet.",
-            "full_frame": "Helbild av rummet där två personer sitter mittemot varandra.",
-        },
-        {
-            "start": now + timedelta(minutes=4),
-            "end": now + timedelta(minutes=5),
-            "uniform": "En person plockar upp ett föremål från golvet.",
-            "varied": "En person böjer sig ner, tar upp något från golvet och reser sig igen.",
-            "snapshot": "En person är böjd mot golvet.",
-            "full_frame": "Rummet i helbild med en person nära golvet i ena delen av scenen.",
-        },
-        {
-            "start": now + timedelta(minutes=6),
-            "end": now + timedelta(minutes=7),
-            "uniform": "En dörr öppnas och stängs.",
-            "varied": "Dörren öppnas kort, någon tittar in och dörren stängs igen.",
-            "snapshot": "En öppen dörr syns i bilden.",
-            "full_frame": "Helbild av rummet där dörren längst bort står öppen.",
-        },
-        {
-            "start": now + timedelta(minutes=8),
-            "end": now + timedelta(minutes=9),
-            "uniform": "En person står stilla mitt i rummet.",
-            "varied": "En person går in i rummet, stannar i mitten och tittar runt.",
-            "snapshot": "En person står i mitten av rummet.",
-            "full_frame": "Rummet syns i helbild med en person centralt placerad.",
-        },
-        {
-            "start": now + timedelta(minutes=10),
-            "end": now + timedelta(minutes=11),
-            "uniform": "En person passerar snabbt genom rummet.",
-            "varied": "En person springer från vänster till höger och försvinner snabbt ur bild.",
-            "snapshot": "En person är i rörelse nära höger sida.",
-            "full_frame": "Helbild där en person snabbt korsar rummet.",
-        },
-        {
-            "start": now + timedelta(minutes=12),
-            "end": now + timedelta(minutes=13),
-            "uniform": "Ett tomt rum utan synlig aktivitet.",
-            "varied": "Ingen person syns och scenen förblir oförändrad under hela intervallet.",
-            "snapshot": "Rummet är tomt.",
-            "full_frame": "Helbild av ett tomt rum utan rörelse.",
-        },
-        {
-            "start": now + timedelta(minutes=14),
-            "end": now + timedelta(minutes=15),
-            "uniform": "En person sitter ner på en stol.",
-            "varied": "En person går fram till en stol och sätter sig ner.",
-            "snapshot": "En person sitter på en stol.",
-            "full_frame": "Rummet visas i helbild med en sittande person nära ena väggen.",
-        },
-        {
-            "start": now + timedelta(minutes=16),
-            "end": now + timedelta(minutes=17),
-            "uniform": "Två personer går in i rummet.",
-            "varied": "Två personer kommer in genom dörren och stannar nära ingången.",
-            "snapshot": "Två personer står nära dörren.",
-            "full_frame": "Helbild av rummet med två personer vid entrén.",
-        },
-        {
-            "start": now + timedelta(minutes=18),
-            "end": now + timedelta(minutes=19),
-            "uniform": "En person lämnar rummet.",
-            "varied": "En person går mot dörren och försvinner ut ur scenen.",
-            "snapshot": "En person är nära utgången.",
-            "full_frame": "Rummet i helbild där en person precis är på väg ut genom dörren.",
-        },
-    ]
+    snapshot_b64 = None
+    try:
+        snapshot_b64 = image_from_timestamp(snapshot_ts)
+    except FileNotFoundError:
+        snapshot_b64 = None
 
-    for event in events:
-        save_description_bundle(
-            timestamp_start=event["start"],
-            timestamp_end=event["end"],
-            created_at=datetime.now(RECORDINGS_TZ),
-            uniform_llm_description=event["uniform"],
-            varied_llm_description=event["varied"],
-            snapshot_llm_description=event["snapshot"],
-            full_frame_llm_description=event["full_frame"],
-            uniform_timestamps=[event["start"], event["end"]],
-            varied_timestamps=[event["start"], event["end"]],
-            snapshot_timestamp=event["start"],
-            full_frame_timestamp=event["end"],
-        )    
+    save_description_bundle(
+        timestamp_start=event_start,
+        timestamp_end=event_end,
+        created_at=base_video_time,
+        uniform_llm_description="En person går genom rummet i jämn takt.",
+        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet.",
+        snapshot_llm_description="En person står nära dörröppningen.",
+        full_frame_llm_description="Rummet är synligt i helbild med en person som passerar genom scenen.",
+        uniform_timestamps=[event_start, event_end],
+        varied_timestamps=[event_start, event_end],
+        snapshot_timestamp=snapshot_ts,
+        full_frame_timestamp=full_frame_ts,
+        snapshot_image_base64=snapshot_b64,
+    )
 
 
 if __name__ == "__main__":
-    # save_description_bundle(
-    #     datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
-    #     datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
-    #     datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
-    #     "Uniform LLM Description",
-    #     "Varied LLM Description",
-    #     "Snapshot LLM Description",
-    #     "Full Frame LLM Description",
-    #     [
-    #         datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ),
-    #         datetime(2026, 2, 9, 11, 51, 10, tzinfo=RECORDINGS_TZ),
-    #     ],
-    #     [
-    #         datetime(2026, 2, 9, 11, 51, 2, tzinfo=RECORDINGS_TZ),
-    #         datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
-    #     ],
-    #     snapshot_timestamp=datetime(2026, 2, 9, 11, 51, 3, tzinfo=RECORDINGS_TZ),
-    #     full_frame_timestamp=datetime(2026, 2, 9, 11, 51, 8, tzinfo=RECORDINGS_TZ),
-    # )
-
-    # uvicorn.run("database:app", reload=True)
+    #seed_test_data()
+    uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

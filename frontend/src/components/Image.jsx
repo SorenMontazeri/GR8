@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+const API_BASE_URL = "http://127.0.0.1:8000";
+
 export default function Image({ searchString }) {
   const [imgSrc, setImgSrc] = useState(null);
   const [error, setError] = useState(null);
@@ -18,7 +20,7 @@ export default function Image({ searchString }) {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`http://localhost:8000/api/image/${searchString}`);
+        const res = await fetch(`${API_BASE_URL}/api/image/${encodeURIComponent(searchString)}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
 

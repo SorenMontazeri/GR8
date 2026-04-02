@@ -394,9 +394,173 @@ class LLMClientSync:
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
+
+
+
+    def query_description_open2(self, base64image, image_mime="image/jpeg"):
+        """
+        Analyze an image and return a concise natural-language description.
+
+        Args:
+            base64image (str): Base64-encoded image content.
+            image_mime (str, optional): MIME type of the encoded image.
+                Defaults to "image/jpeg".
+
+        Returns:
+            dict: Parsed structured response, typically produced by `parse_llm_response`.
+
+        Raises:
+            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
+            ValueError: If the endpoint returns invalid JSON.
+        """
+        body = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Analyze the provided base64 image and return a concise natural-language description.\n\n"
+                                "Return ONLY JSON that matches the schema.\n"
+                                "Do not include extra fields."
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{image_mime};base64,{base64image}"},
+                        },
+                    ],
+                }
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "image_description_simple",
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "description": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["description"],
+                    },
+                },
+            },
+        }
+
         
-    def query_description_sequence(self, base64image, image_mime="image/jpeg"):
-        pass
+
+        try:
+            response = self.client.post(self.endpoint, json=body)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                f"HTTP error {exc.response.status_code} from LLM endpoint"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
+
+        try:
+            return parse_llm_response(response.json())
+        except json.JSONDecodeError as exc:
+            raise ValueError("LLM endpoint returned invalid JSON") from exc
+        
+
+    def query_description_open3(self, base64images, image_mime="image/jpeg", sequence=False):
+        """
+        Analyze a sequence of images and return a concise natural-language description of the sequence.
+
+        This method sends multiple images in a single request to the LLM, which analyzes
+        them as a sequence to describe the overall events and progression.
+
+        Args:
+            base64images (list[str]): List of base64-encoded image contents.
+            image_mime (str, optional): MIME type of the encoded images.
+                Defaults to "image/jpeg".
+
+        Returns:
+            dict: Parsed structured response, typically produced by `parse_llm_response`.
+
+        Raises:
+            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
+            ValueError: If the endpoint returns invalid JSON or the list is empty.
+        """
+        if not base64images or len(base64images) == 0:
+            raise ValueError("base64images list cannot be empty")
+
+        # Build content array with all images
+        if sequence == False:
+             content = [
+                {
+                    "type": "text",
+                    "text": (
+                        "Analyze the provided image and return a concise natural-language description of what happens in the image.\n\n"
+                        "Return ONLY JSON that matches the schema.\n"
+                        "Do not include extra fields."
+                    ),
+                }
+            ]
+        else:  
+            content = [
+                {
+                    "type": "text",
+                    "text": (
+                        "Analyze the provided sequence of images and return a concise natural-language description of what happens across the sequence.\n\n"
+                        "Return ONLY JSON that matches the schema.\n"
+                        "Do not include extra fields."
+                    ),
+                }
+            ]
+
+        # Add all images to the content
+        for base64_image in base64images:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:{image_mime};base64,{base64_image}"},
+            })
+
+        body = {
+            "model": self.model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content,
+                }
+            ],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "sequence_description_simple",
+                    "schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "description": {"type": "string", "minLength": 1},
+                        },
+                        "required": ["description"],
+                    },
+                },
+            },
+        }
+
+        try:
+            response = self.client.post(self.endpoint, json=body)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            error_body = exc.response.text
+            print(f"Error body: {error_body}")
+            raise RuntimeError(
+                f"HTTP error {exc.response.status_code} from LLM endpoint: {error_body}"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
+
+        try:
+            return parse_llm_response(response.json())
+        except json.JSONDecodeError as exc:
+            raise ValueError("LLM endpoint returned invalid JSON") from exc
 
 
 
@@ -417,20 +581,18 @@ def test_sync():
     descriptors = ["thief", "civilian", "human", "dog", "cat", "rat", "dark_clothed", "light_clothed"]
 
     llm = LLMClientSync(endpoint, api_key, model)
-    image = "test.webp"
-    base64_image = encode_image_to_base64(image)
+    list = []
+    list.append(encode_image_to_base64("1.jpeg"))
+    list.append(encode_image_to_base64("2.jpg"))
+    list.append(encode_image_to_base64("3.jpeg"))
+    list.append(encode_image_to_base64("4.jpeg"))
+
+    response = llm.query_description_open3(list, image_mime="image/jpeg", sequence=True)
+    print(response["description"])
 
 
-    response1 = llm.query_description_closed(base64_image, descriptors, image_mime="image/webp" )
-    print(response1["keywords"])
-    response2 = llm.query_description_open(base64_image, image_mime="image/webp" )
-
-    with open("test1.json", "w", encoding="utf-8") as f:
-        json.dump(response1, f, indent=2, ensure_ascii=False)
-
-    with open("test2.json", "w", encoding="utf-8") as f:
-        json.dump(response2, f, indent=2, ensure_ascii=False)
-
+    with open("test.json", "w", encoding="utf-8") as f:
+        json.dump(response, f, indent=2, ensure_ascii=False)
 
     llm.close()
 
@@ -440,6 +602,15 @@ def test_base():
     base64_image = encode_image_to_base64(image)
     print(base64_image)
 
+def test_simple():
+    load_dotenv()
+    endpoint = "https://api.ai.auth.axis.cloud/v1/chat/completions"
+    api_key = os.environ.get("FACADE_API_KEY")
+    model = "prisma_gemini_pro"
+    llm = LLMClientSync(endpoint, api_key, model)
+    base64_image = encode_image_to_base64("download.jpeg")
+    response = llm.query_description_open(base64_image, image_mime="image/jpeg")
+    print(response["description"])
 
 
 if __name__ == "__main__":

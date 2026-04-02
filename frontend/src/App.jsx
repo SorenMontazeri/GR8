@@ -14,36 +14,6 @@ function App() {
   const [submittedString, setSubmittedString] = useState(null); // stores the submitted string 
   const didRunStartupFetch = useRef(false);
 
-  useEffect(() => {
-    if (didRunStartupFetch.current) return;
-    didRunStartupFetch.current = true;
-
-    let cancelled = false;
-
-    async function fetchStartupEvent(attempt = 1) {
-      try {
-        const debugQuery = "person";
-        const res = await fetch(`${API_BASE_URL}/api/event/${encodeURIComponent(debugQuery)}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        console.log("startup /api/event response:", data);
-      } catch (error) {
-        if (attempt < 10 && !cancelled) {
-          setTimeout(() => {
-            fetchStartupEvent(attempt + 1);
-          }, 1000);
-          return;
-        }
-        console.error("startup /api/event failed:", error);
-      }
-    }
-
-    fetchStartupEvent();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   /* Called when the user clicks the search button and calls 
   images.jsx to show an image at the UI 
    */

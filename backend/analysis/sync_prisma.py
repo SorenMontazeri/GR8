@@ -58,59 +58,6 @@ class LLMClientSync:
             },
         )
 
-    def query(self, prompt, base64image):
-        """
-        Send a generic multimodal query containing text plus one base64-encoded image.
-
-        The image is sent as a data URL with MIME type `image/jpeg`.
-
-        Args:
-            prompt (str): User prompt to send to the model.
-            base64image (str): Base64-encoded image content.
-
-        Returns:
-            dict: Raw JSON response returned by the LLM endpoint.
-
-        Raises:
-            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
-            ValueError: If the endpoint returns invalid JSON.
-        """
-        body = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64image}"
-                            }
-                        }
-                    ]
-                }
-            ]
-        }
-
-        try:
-            response = self.client.post(self.endpoint, json=body)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"HTTP error {exc.response.status_code} from LLM endpoint"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
-
-        try:
-            return response.json()
-        except json.JSONDecodeError as exc:
-            raise ValueError("LLM endpoint returned invalid JSON") from exc
-
     def query_description_closed(self, base64image, descriptors, image_mime="image/jpeg"):
         print("sending")
         """
@@ -204,289 +151,38 @@ class LLMClientSync:
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
 
-    def query_description_open(self, base64image, image_mime="image/jpeg"):
+
+
+    def query_description_open(self, base64images, image_mime="image/jpeg", sequence=False):
         """
-        Analyze an image and return a rich structured description.
+        Analyze one or more images and return a concise natural-language description.
 
-        This method asks the model to produce JSON matching a schema with:
-        - keywords
-        - scene tags
-        - objects
-        - high-level events with confidence scores
-        - per-person descriptions including inferred role, actions, held objects, and clothing
-        - a concise natural-language description
+        This method sends one or more images in a single request and requests a strict
+        JSON-schema response with the shape:
+            {
+                "description": "..."
+            }
 
-        Args:
-            base64image (str): Base64-encoded image content.
-            image_mime (str, optional): MIME type of the encoded image.
-                Defaults to "image/jpeg".
-
-        Returns:
-            dict: Parsed structured response, typically produced by `parse_llm_response`.
-
-        Raises:
-            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
-            ValueError: If the endpoint returns invalid JSON.
-        """
-        body = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "Analyze the provided base64 image and return a structured description.\n\n"
-                                "Return ONLY JSON that matches the schema.\n\n"
-                                "Guidelines:\n"
-                                "- keywords: short searchable terms associated with the image.\n"
-                                "- scene: environment/context terms (e.g., 'indoors', 'outdoors', 'street', 'store', 'night', 'day' etc).\n"
-                                "- objects: concrete things (objecs) visible in the image.\n"
-                                "- events: ONLY high-level situations (e.g., 'birthday party', 'robbery', 'car accident' etc).\n"
-                                "  Include a confidence score per event.\n"
-                                "- people: create one entry per visible person.\n"
-                                "  - person_id: short id like 'p1', 'p2'.\n"
-                                "  - role: free-text role label you infer (e.g., civilian, police officer, shopkeeper).\n"
-                                "    If unclear/uncertain, set role to 'unknown'.\n"
-                                "  - role_confidence: number from 0 to 1.\n"
-                                "  - actions: ONLY human actions/behaviors (verbs/phrases like 'walking', 'running', 'sneaking', 'looking around' etc).\n"
-                                "    Do NOT include worn/carried items as actions (e.g., NOT 'wearing backpack').\n"
-                                "  - held_objects: objects the person is holding.\n"
-                                "  - clothing: list EVERY worn clothing item (including accessories such as glasses, backpack, purse etc) with primary color and any secondary colors.\n"
-                                "- description: concise natural-language summary of the whole image.\n"
-                                "- Use empty arrays if none are applicable.\n"
-                                "- Do not include extra fields."
-                            ),
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{image_mime};base64,{base64image}"},
-                        },
-                    ],
-                }
-            ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "open_image_description_people_v2",
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "keywords": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "minItems": 0,
-                                "uniqueItems": True,
-                            },
-                            "scene": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "minItems": 0,
-                                "uniqueItems": True,
-                            },
-                            "objects": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "minItems": 0,
-                                "uniqueItems": True,
-                            },
-                            "events": {
-                                "type": "array",
-                                "minItems": 0,
-                                "uniqueItems": True,
-                                "items": {
-                                    "type": "object",
-                                    "additionalProperties": False,
-                                    "properties": {
-                                        "label": {"type": "string"},
-                                        "confidence": {
-                                            "type": "number",
-                                            "minimum": 0.0,
-                                            "maximum": 1.0,
-                                        },
-                                    },
-                                    "required": ["label", "confidence"],
-                                },
-                            },
-                            "people": {
-                                "type": "array",
-                                "minItems": 0,
-                                "items": {
-                                    "type": "object",
-                                    "additionalProperties": False,
-                                    "properties": {
-                                        "person_id": {"type": "string"},
-                                        "role": {"type": "string"},
-                                        "role_confidence": {
-                                            "type": "number",
-                                            "minimum": 0.0,
-                                            "maximum": 1.0,
-                                        },
-                                        "actions": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "minItems": 0,
-                                            "uniqueItems": True,
-                                        },
-                                        "held_objects": {
-                                            "type": "array",
-                                            "items": {"type": "string"},
-                                            "minItems": 0,
-                                            "uniqueItems": True,
-                                        },
-                                        "clothing": {
-                                            "type": "array",
-                                            "minItems": 0,
-                                            "items": {
-                                                "type": "object",
-                                                "additionalProperties": False,
-                                                "properties": {
-                                                    "item": {"type": "string"},
-                                                    "color": {"type": "string"},
-                                                    "secondary_colors": {
-                                                        "type": "array",
-                                                        "items": {"type": "string"},
-                                                        "minItems": 0,
-                                                        "uniqueItems": True,
-                                                    },
-                                                    "attributes": {
-                                                        "type": "array",
-                                                        "items": {"type": "string"},
-                                                        "minItems": 0,
-                                                        "uniqueItems": True,
-                                                    },
-                                                },
-                                                "required": ["item", "color", "secondary_colors"],
-                                            },
-                                        },
-                                    },
-                                    "required": [
-                                        "person_id",
-                                        "role",
-                                        "role_confidence",
-                                        "actions",
-                                        "held_objects",
-                                        "clothing",
-                                    ],
-                                },
-                            },
-                            "description": {"type": "string", "minLength": 1},
-                        },
-                        "required": ["keywords", "scene", "objects", "events", "people", "description"],
-                    },
-                },
-            },
-        }
-
-        try:
-            response = self.client.post(self.endpoint, json=body)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"HTTP error {exc.response.status_code} from LLM endpoint"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
-
-        try:
-            return parse_llm_response(response.json())
-        except json.JSONDecodeError as exc:
-            raise ValueError("LLM endpoint returned invalid JSON") from exc
-
-
-
-    def query_description_open2(self, base64image, image_mime="image/jpeg"):
-        """
-        Analyze an image and return a concise natural-language description.
-
-        Args:
-            base64image (str): Base64-encoded image content.
-            image_mime (str, optional): MIME type of the encoded image.
-                Defaults to "image/jpeg".
-
-        Returns:
-            dict: Parsed structured response, typically produced by `parse_llm_response`.
-
-        Raises:
-            RuntimeError: If the HTTP request fails or the endpoint returns an error status.
-            ValueError: If the endpoint returns invalid JSON.
-        """
-        body = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "Analyze the provided base64 image and return a concise natural-language description.\n\n"
-                                "Return ONLY JSON that matches the schema.\n"
-                                "Do not include extra fields."
-                            ),
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{image_mime};base64,{base64image}"},
-                        },
-                    ],
-                }
-            ],
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "image_description_simple",
-                    "schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "description": {"type": "string", "minLength": 1},
-                        },
-                        "required": ["description"],
-                    },
-                },
-            },
-        }
-
-        
-
-        try:
-            response = self.client.post(self.endpoint, json=body)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(
-                f"HTTP error {exc.response.status_code} from LLM endpoint"
-            ) from exc
-        except httpx.RequestError as exc:
-            raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
-
-        try:
-            return parse_llm_response(response.json())
-        except json.JSONDecodeError as exc:
-            raise ValueError("LLM endpoint returned invalid JSON") from exc
-        
-
-    def query_description_open3(self, base64images, image_mime="image/jpeg", sequence=False):
-        """
-        Analyze a sequence of images and return a concise natural-language description of the sequence.
-
-        This method sends multiple images in a single request to the LLM, which analyzes
-        them as a sequence to describe the overall events and progression.
+        The model is instructed to:
+        - describe what happens in the image when `sequence` is False
+        - describe what happens across the image sequence when `sequence` is True
+        - avoid any additional fields
 
         Args:
             base64images (list[str]): List of base64-encoded image contents.
             image_mime (str, optional): MIME type of the encoded images.
                 Defaults to "image/jpeg".
+            sequence (bool, optional): Whether to interpret `base64images` as an
+                ordered sequence. Defaults to False.
 
         Returns:
             dict: Parsed structured response, typically produced by `parse_llm_response`.
 
         Raises:
             RuntimeError: If the HTTP request fails or the endpoint returns an error status.
-            ValueError: If the endpoint returns invalid JSON or the list is empty.
+            ValueError: If the endpoint returns invalid JSON or `base64images` is empty.
         """
+        print("sending")
         if not base64images or len(base64images) == 0:
             raise ValueError("base64images list cannot be empty")
 
@@ -558,6 +254,7 @@ class LLMClientSync:
             raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
 
         try:
+            print("sent")
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc

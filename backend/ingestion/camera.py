@@ -93,21 +93,40 @@ class Camera:
         if not isinstance(data, dict):
             print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
             return
+                
+        # receive data
+        # Pars to get 
+        # Start and end timestamp
 
+        # Snapshot analysis 
+        # parse Snapshot
+        # make request  
+
+
+        # Full frame analysis
+        # From timestamps retreive full-frames from buffer  (for now using start_time)
+        # 
+
+        # sequence analysis
+        # calculate calculate frame time  (from start and end time)
+        # Retreive frames from buffer based on calculated frame times
+        # Make analysis
+
+        # Send everything to backend
         target_timestamp = self._extract_event_timestamp(data)
         self.mqtt_buffer.append(BufferedMqttEvent(timestamp=target_timestamp, payload=data))
-
-        matched_frame = self.get_hot_buffer_frame_at(target_timestamp)
-        if matched_frame is None:
-            print(f"[camera:{self.camera_id}][mqtt] no matching frame in hot buffer")
-            return
 
         if self.analysis_client is None:
             print(f"[camera:{self.camera_id}][mqtt] analysis_client is not configured")
             return
 
+        descriptors = [ "white_clothes", "man", "woman", "gray_clothes", "green_clothes", "black_clothes", "glasses",
+            "blue_jeans", "brown_pants", "t_shirt",
+        ]
+        ##Snapshot
         try:
-            frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
+            image = data.get("image")
+            snapshot_b64 = image.get("data") if isinstance(image, dict) else None
 
             analysis_response = self.analysis_client.query_description_open(
                 frame_b64,
@@ -122,10 +141,31 @@ class Camera:
             #     return
             save_analysis(
                 created_at=target_timestamp,
-                description=analysis_response["keywords"],
+                description=snapshot_response["keywords"],
             )
         except Exception as e:
-            print(f"[camera:{self.camera_id}][mqtt] analysis/save failed: {e}")
+            print(f"[camera:{self.camera_id}][mqtt] snapshot analysis/save failed: {e}")
+        ##Full frame
+        try:
+            matched_frame = self.get_hot_buffer_frame_at(target_timestamp)
+            if matched_frame is None:
+                print(f"[camera:{self.camera_id}][mqtt] no matching frame in hot buffer")
+                return
+
+            frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
+
+            fullframe_response = self.analysis_client.query_description_closed(
+                frame_b64,
+                descriptors,
+                image_mime="image/jpeg",
+            )
+            print("fullframe:", fullframe_response["keywords"])
+            save_analysis(
+                created_at=target_timestamp,
+                description=fullframe_response["keywords"],
+            )
+        except Exception as e:
+            print(f"[camera:{self.camera_id}][mqtt] fullframe analysis/save failed: {e}")
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")

@@ -1,0 +1,12 @@
+logLevel: info
+
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+pathDefaults:
+  source: publisher
+
+paths:
+  sim-1:
+  all_others:

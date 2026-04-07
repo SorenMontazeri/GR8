@@ -7,9 +7,13 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from dotenv import load_dotenv
 import os
-from zoneinfo import ZoneInfo
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - optional in thin test envs
+    def load_dotenv() -> bool:
+        return False
 
 
 import cv2
@@ -19,8 +23,6 @@ import paho.mqtt.client as mqtt
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-
-from analysis.sync_prisma import LLMClientSync
 from database.database import save_analysis
 from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
@@ -107,12 +109,13 @@ class Camera:
         try:
             frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
 
-            analysis_response = self.analysis_client.query_description_closed(
+            analysis_response = self.analysis_client.query_description_open(
                 frame_b64,
-                ["white_clothes", "man", "woman", "gray_clothes", "green_clothes", "black_clothes", "glasses", "blue_jeans", "brown_pants", "t_shirt"],
                 image_mime="image/jpeg",
             )
-            print(analysis_response["keywords"])
+            print("here")
+            print(analysis_response["description"])
+            #print(analysis_response["keywords"])
             # description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
             # if not description:
             #     print(f"[camera:{self.camera_id}][mqtt] analysis returned no description")
@@ -125,14 +128,17 @@ class Camera:
             print(f"[camera:{self.camera_id}][mqtt] analysis/save failed: {e}")
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
-        # start_time = payload.get("start_time")
-        # if isinstance(start_time, str) and start_time.strip():
-        #     try:
-        #         return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-        #     except ValueError:
-        #         print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
+        start_time = payload.get("start_time")
+        if isinstance(start_time, str) and start_time.strip():
+            try:
+                parsed = datetime.fromisoformat(start_time.strip().replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc)
+            except ValueError:
+                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
 
-        return datetime.now(ZoneInfo("Europe/Stockholm"))
+        return datetime.now(timezone.utc)
 
     def init_buffer(self) -> None:
         max_frames = self.hot_buffer_seconds * self.hot_buffer_fps
@@ -272,6 +278,8 @@ class Camera:
 
 
 def main() -> None:
+    from analysis.sync_prisma import LLMClientSync
+
     load_dotenv()
     camera_ip = "192.168.0.90"
     username = "student"

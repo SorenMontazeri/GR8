@@ -418,7 +418,8 @@ def test_sync():
 
 
     response1 = llm.query_description_closed(base64_image, descriptors, image_mime="image/webp" )
-    print(response1["keywords"])
+    #print(response1["keywords"])
+    print(f'Response: {response1}')
     response2 = llm.query_description_open(base64_image, image_mime="image/webp" )
 
     with open("test1.json", "w", encoding="utf-8") as f:

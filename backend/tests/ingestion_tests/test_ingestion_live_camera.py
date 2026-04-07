@@ -1,5 +1,4 @@
 from __future__ import annotations
-import pytest
 """
 Live camera ingestion tests.
 
@@ -127,11 +126,35 @@ class _SpyAnalysisClient:
     def __init__(self) -> None:
         self.calls = []
 
-    def query_description_open(self, image_b64: str, image_mime: str = "image/jpeg") -> dict:
-        self.calls.append({"image_b64": image_b64, "image_mime": image_mime})
-        return {"description": "stub-description"}
+    def query_description_open(
+        self,
+        image_b64: str,
+        image_mime: str = "image/jpeg",
+    ) -> dict:
+        self.calls.append(
+            {
+                "image_b64": image_b64,
+                "image_mime": image_mime,
+            }
+        )
+        return {"description": "stub-description", "keywords": ["stub-keyword"]}
 
-@pytest.mark.skip(reason = "funkar ej")
+    # Keep backward compatibility in the test double in case older code paths are exercised.
+    def query_description_closed(
+        self,
+        image_b64: str,
+        keywords: list[str],
+        image_mime: str = "image/jpeg",
+    ) -> dict:
+        self.calls.append(
+            {
+                "image_b64": image_b64,
+                "keywords": keywords,
+                "image_mime": image_mime,
+            }
+        )
+        return {"description": "stub-description", "keywords": ["stub-keyword"]}
+
 class CameraOnMessageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.saved = []
@@ -169,8 +192,21 @@ class CameraOnMessageTests(unittest.TestCase):
         self.assertEqual(cam.analysis_client.calls[0]["image_mime"], "image/jpeg")
         self.assertGreater(len(cam.analysis_client.calls[0]["image_b64"]), 0)
         self.assertEqual(len(self.saved), 1)
-        #self.assertEqual(self.saved[0]["description"], "stub-description")
+        self.assertEqual(self.saved[0]["description"], ["stub-keyword"])
         self.assertEqual(cam.mqtt_buffer.stats()["events"], 1)
+
+    def test_extract_event_timestamp_prefers_start_time(self) -> None:
+        cam = self._make_camera()
+        parsed = cam._extract_event_timestamp({"start_time": "2026-03-24T12:00:00Z"})
+        self.assertEqual(parsed, datetime(2026, 3, 24, 12, 0, tzinfo=timezone.utc))
+
+    def test_extract_event_timestamp_falls_back_to_now_when_invalid(self) -> None:
+        cam = self._make_camera()
+        before = datetime.now(timezone.utc)
+        parsed = cam._extract_event_timestamp({"start_time": "not-a-timestamp"})
+        after = datetime.now(timezone.utc)
+        self.assertGreaterEqual(parsed, before)
+        self.assertLessEqual(parsed, after)
 
     def test_on_message_invalid_json_is_handled(self) -> None:
         cam = self._make_camera()

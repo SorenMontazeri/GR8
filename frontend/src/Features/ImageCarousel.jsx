@@ -1,62 +1,30 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
-export default function ImageCarousel({ searchString }) {
-  
+export default function ImageCarousel({ images = [], searchString }) {
   const testImages = ["/bird.jpg", "/flower.jpg"];
-  const [images, setImages] = useState(testImages); 
+  const [displayImages, setDisplayImages] = useState(testImages);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Om ingen söksträng finns, visa testbilderna
     if (!searchString) {
-      setImages(testImages);
+      setDisplayImages(testImages);
       setCurrentIndex(0);
       return;
     }
 
-    // Hämta bilderna från DB
-    async function fetchSeq() {
-      setLoading(true);
-      try {
-        const res = await fetch(`http://localhost:8000/api/sequence/${searchString}`);
-        if (!res.ok) throw new Error("Kunde inte hämta data");
-        
-        const data = await res.json();
-        
-        if (data.images && data.images.length > 0) {
-          setImages(data.images); 
-        } else {
-          setImages([]); 
-        }
-        setCurrentIndex(0); 
-      } catch (e) { 
-        console.error("Fetch error:", e); 
-        setImages([]); 
-      } finally {
-        setLoading(false);
-      }
-    }
+    setDisplayImages(images);
+    setCurrentIndex(0);
+  }, [images, searchString]);
 
-    fetchSeq();
-  }, [searchString]);
+  const goNext = () => setCurrentIndex((prev) => (prev + 1) % displayImages.length);
+  const goPrev = () => setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
 
-  // Bläddringsfunktioner
-  const goNext = () => setCurrentIndex((prev) => (prev + 1) % images.length);
-  const goPrev = () => setCurrentIndex((prev) => (prev - 1 + images.length) % images.length);
-
-  // --- Din fina visningslogik ---
-  if (loading) {
-    return <div className="text-[#FFCC00] animate-pulse">Laddar sekvens...</div>;
-  }
-
-  if (images.length === 0) {
+  if (displayImages.length === 0) {
     return <div className="text-white">Ingen sekvens hittades för "{searchString}"</div>;
   }
 
-  // Hjälpfunktion för att hantera både lokala filer och Base64 från DB
   const renderImage = () => {
-    const currentImg = images[currentIndex];
+    const currentImg = displayImages[currentIndex];
     if (typeof currentImg === "string" && currentImg.startsWith("/")) {
       return currentImg;
     }
@@ -91,7 +59,7 @@ export default function ImageCarousel({ searchString }) {
 
       <div className="flex flex-col items-center">
         <span className="text-[#FFCC00] font-bold">
-          {currentIndex + 1} / {images.length}
+          {currentIndex + 1} / {displayImages.length}
         </span>
         <span className="text-gray-400 text-xs mt-1">
           {searchString ? `Visar: ${searchString}` : "Visar testbilder"}

@@ -9,23 +9,46 @@ import LikeButton from "./components/LikeButton";
 import ImageCarousel from "./Features/ImageCarousel";
 
 function Home({ onAnalysClick }) {
-  const [searchString, setString] = useState("");          // what user types
-  const [submittedString, setSubmittedString] = useState(null); // stores the submitted string 
-  const[eventData, setEventData] = useState(null); // stores event data like timestamp and description
+  const [searchString, setString] = useState("");
+  const [submittedString, setSubmittedString] = useState(null);
+  const [eventData, setEventData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  /* Called when the user clicks the search button and calls
-  images.jsx to show an image at the UI
-   */
   useEffect(() => {
-    if (!submittedString) return;
-    fetch(`http://localhost:8000/api/event/${submittedString}`)
-    .then((res) => res.json())
-    .then(setEventData);
+    if (!submittedString) {
+      setEventData(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+
+    async function loadEvent() {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`http://localhost:8000/api/event/${submittedString}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setEventData(data);
+      } catch (err) {
+        setEventData(null);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadEvent();
   }, [submittedString]);
 
   function handleSearch() {
     setSubmittedString(searchString.trim());
   }
+
+  const groupId = eventData?.description_group?.id;
 
   return (
     <div className="App flex flex-col items-center justify-center min-h-screen gap-4">
@@ -40,51 +63,35 @@ function Home({ onAnalysClick }) {
       <TextSearch searchString={searchString} setString={setString} />
 
       <SearchButton id={searchString} onClick={handleSearch} />
+      {error ? <p className="text-red-400">Failed to load backend data: {error}</p> : null}
+      {loading ? <p className="text-[#FFCC00]">Loading results...</p> : null}
       <div className="App flex flex-row bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
                 <div className="App flex flex-col">
-                    {/* FullFrame */}
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
                           <FullFrameImage searchString={submittedString} eventData={eventData?.full_frame} />
-                          <LikeButton searchString={submittedString} imageType="full_frame" />
-                          <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
-                          <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
+                          <LikeButton groupId={groupId} imageType="full_frame" />
                 </div> 
                 <div className="App flex flex-col">
-                    {/* Snapshot */}
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot Image</h2>
-                    <Snapshot searchString={submittedString} />
-                    <LikeButton searchString={submittedString} imageType="snapshot" />
-                    <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
-                    <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
-
+                    <Snapshot searchString={submittedString} eventData={eventData?.snapshot} />
+                    <LikeButton groupId={groupId} imageType="snapshot" />
                 </div> 
 
         </div> 
         
         <div className="App flex flex-col bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
-
-        {/* DEN NYA BLÄDDRINGSBARA SEKVENSSEN */}
-         {/* Sequence 1 - Uniform*/}
         <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens  Uniform</h2>
         
-        <ImageCarousel searchString={submittedString} />
-        <Seq1 searchString={submittedString} />
-        <LikeButton searchString={submittedString} imageType="uniform" />
-        <a className="text-l font-bold text-[#FFCC00] mb-2">Time:</a>
-        <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
+        <ImageCarousel searchString={submittedString} images={eventData?.uniform?.images || []} />
+        <Seq1 searchString={submittedString} eventData={eventData?.uniform} />
+        <LikeButton groupId={groupId} imageType="uniform" />
 
         <hr className="border-[#555] my-4" /> {/* En linje för att dela upp */}
 
-
-      
-        
-        {/* Sequence 2  Varied*/}
         <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens 2 Varied</h2>
-        <ImageCarousel searchString={submittedString} />
-        <Seq2 searchString={submittedString} />
-        <LikeButton searchString={submittedString} imageType="varied" />
-        <a className="text-l font-bold text-[#FFCC00] mb-2">Time:</a>
-        <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>
+        <ImageCarousel searchString={submittedString} images={eventData?.varied?.images || []} />
+        <Seq2 searchString={submittedString} eventData={eventData?.varied} />
+        <LikeButton groupId={groupId} imageType="varied" />
         </div> 
 
     </div>

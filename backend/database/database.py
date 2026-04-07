@@ -732,4 +732,5 @@ def seed_test_data():
 
 if __name__ == "__main__":
     #seed_test_data()
+    seed_test_data()
     uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

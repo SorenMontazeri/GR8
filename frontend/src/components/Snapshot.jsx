@@ -1,53 +1,24 @@
-import { useEffect, useState } from "react";
+export default function Snapshot({ eventData, searchString }) {
+  if (!searchString) return <p>Search for something to load a snapshot.</p>;
 
-export default function Snapshot({ searchString }) {
-  const [imgSrc, setImgSrc] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-// Whenever the search string changes, we want to fetch a new image
-  useEffect(() => {
-    if (!searchString) {
-      setImgSrc(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
+  if (!eventData) return <p>Loading image...</p>;
 
-    async function load() {
-      //load image from backend, handle loading and error states
-      try {
-        setLoading(true);
-        setError(null);
-        const res = await fetch(`http://localhost:8000/api/image/snapshot/${searchString}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-
-        setImgSrc(`data:image/jpeg;base64,${data.image}`);
-      } catch (e) {
-        setImgSrc(null);
-        setError(e.message);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    load();
-  }, [searchString]);
-
-  if (!searchString) return <p>Snapshot.</p>;
-
-  if (error) return <p>Failed to load image: {error}</p>;
-  if (loading || !imgSrc) return <p>Loading image...</p>;
+  if (!eventData.image) return <p>No snapshot image found.</p>;
 
   return (
-    // Display the image with a title
-    <div>
+    <div className="App flex flex-col">
       <h2>{searchString}</h2>
       <img
-        src={imgSrc}
+        src={`data:image/jpeg;base64,${eventData.image}`}
         alt={searchString}
         style={{ maxWidth: "500px", width: "100%", borderRadius: "12px" }}
       />
+      <p className="text-l font-bold text-[#FFCC00] mb-2">
+        Timestamp: <span className="font-normal text-white">{eventData.timestamp || "Ingen tidsstämpel tillgänglig"}</span>
+      </p>
+      <p className="text-l font-bold text-[#FFCC00] mb-2">
+        Description: <span className="font-normal text-white">{eventData.llm_description || "Ingen beskrivning tillgänglig"}</span>
+      </p>
     </div>
   );
 }

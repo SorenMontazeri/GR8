@@ -1,13 +1,12 @@
-
 import { useState } from "react";
 
 /* Search button that runs the function handleSearch when the user is clicking 
 on it which updates the submittedName state in App.jsx */
-export default function LikeButton({ searchString, imageType }) {
+export default function LikeButton({ groupId, imageType }) {
     const [liked, setLiked] = useState(false);
 
     const handleLikeClick = async () => {
-        //if (!searchString) return;
+        if (!groupId) return;
 
         const newLikedStatus = !liked;
         setLiked(newLikedStatus);
@@ -18,9 +17,7 @@ export default function LikeButton({ searchString, imageType }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     description_type: imageType, 
-                    // Konvertera searchString till ett heltal (int)
-                    id: 1, 
-                    // Skicka 1 för like, -1 för dislike
+                    id: groupId,
                     feedback: newLikedStatus ? 1 : -1 
                 })
             });
@@ -32,9 +29,9 @@ export default function LikeButton({ searchString, imageType }) {
     
   return (
     <button
-     // id={id}
       type="button"
       onClick={handleLikeClick}
+      disabled={!groupId}
       className={`inline-block w-fit px-2 py-1 text-xs leading-none rounded-md focus:outline-none ${
         liked
           ? "bg-[#FFCC00] hover:bg- focus:ring-green-500 text-white"

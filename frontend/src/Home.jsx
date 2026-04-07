@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import SearchButton from "./components/Searchbutton";
 import TextSearch from "./components/TextSearch.jsx";
 import FullFrameImage from "./components/FullFrame.jsx";
@@ -11,10 +11,18 @@ import ImageCarousel from "./Features/ImageCarousel";
 function Home({ onAnalysClick }) {
   const [searchString, setString] = useState("");          // what user types
   const [submittedString, setSubmittedString] = useState(null); // stores the submitted string 
+  const[eventData, setEventData] = useState(null); // stores event data like timestamp and description
 
   /* Called when the user clicks the search button and calls
   images.jsx to show an image at the UI
    */
+  useEffect(() => {
+    if (!submittedString) return;
+    fetch(`http://localhost:8000/api/event/${submittedString}`)
+    .then((res) => res.json())
+    .then(setEventData);
+  }, [submittedString]);
+
   function handleSearch() {
     setSubmittedString(searchString.trim());
   }
@@ -36,7 +44,7 @@ function Home({ onAnalysClick }) {
                 <div className="App flex flex-col">
                     {/* FullFrame */}
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
-                          <FullFrameImage searchString={submittedString} />
+                          <FullFrameImage searchString={submittedString} eventData={eventData?.full_frame} />
                           <LikeButton searchString={submittedString} imageType="full_frame" />
                           <a className="text-l font-bold text-[#FFCC00] mb-2">Timestamp:</a>
                           <a className="text-l font-bold text-[#FFCC00] mb-2">Description:</a>

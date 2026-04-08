@@ -22,6 +22,14 @@ from ingestion.camera import Camera
 
 
 class StubAnalysisClient:
+    async def query_description_open(
+        self,
+        base64images,
+        image_mime="image/jpeg",
+        sequence=False,
+    ):
+        return {"description": "simulated frame description", "keywords": ["simulated", "frame-matched"]}
+
     def query_description_closed(self, frame_b64, labels, image_mime="image/jpeg"):
         return {"keywords": ["simulated", "frame-matched"]}
 
@@ -64,9 +72,9 @@ def main() -> int:
     else:
         api_key = args.api_key or os.environ.get("FACADE_API_KEY")
         if api_key:
-            from analysis.sync_prisma import LLMClientSync
+            from analysis.async_prisma import LLMClient
 
-            analysis_client = LLMClientSync(args.endpoint, api_key, args.model)
+            analysis_client = LLMClient(args.endpoint, api_key, args.model)
         else:
             print("[ingestion-runner] no API key found, falling back to StubAnalysisClient")
             analysis_client = StubAnalysisClient()

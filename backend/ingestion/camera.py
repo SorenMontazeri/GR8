@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 import os
+import asyncio
 
 try:
     from dotenv import load_dotenv
@@ -94,78 +95,31 @@ class Camera:
             print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
             return
                 
-        # receive data
-        # Pars to get 
-        # Start and end timestamp
-
-        # Snapshot analysis 
-        # parse Snapshot
-        # make request  
-
-
-        # Full frame analysis
-        # From timestamps retreive full-frames from buffer  (for now using start_time)
-        # 
-
-        # sequence analysis
-        # calculate calculate frame time  (from start and end time)
-        # Retreive frames from buffer based on calculated frame times
-        # Make analysis
-
-        # Send everything to backend
+                
+        # Get necessary info
         target_timestamp = self._extract_event_timestamp(data)
-        self.mqtt_buffer.append(BufferedMqttEvent(timestamp=target_timestamp, payload=data))
+        image = data.get("image")
+        snapshot_b64 = image.get("data") if isinstance(image, dict) else None
 
-        if self.analysis_client is None:
-            print(f"[camera:{self.camera_id}][mqtt] analysis_client is not configured")
-            return
 
-        descriptors = [ "white_clothes", "man", "woman", "gray_clothes", "green_clothes", "black_clothes", "glasses",
-            "blue_jeans", "brown_pants", "t_shirt",
-        ]
-        ##Snapshot
-        try:
-            image = data.get("image")
-            snapshot_b64 = image.get("data") if isinstance(image, dict) else None
-
-            analysis_response = self.analysis_client.query_description_open(
-                frame_b64,
-                image_mime="image/jpeg",
-            )
-            print("here")
-            print(analysis_response["description"])
-            #print(analysis_response["keywords"])
-            # description = analysis_response.get("description") if isinstance(analysis_response, dict) else None
-            # if not description:
-            #     print(f"[camera:{self.camera_id}][mqtt] analysis returned no description")
-            #     return
-            save_analysis(
-                created_at=target_timestamp,
-                description=snapshot_response["keywords"],
-            )
-        except Exception as e:
-            print(f"[camera:{self.camera_id}][mqtt] snapshot analysis/save failed: {e}")
-        ##Full frame
-        try:
-            matched_frame = self.get_hot_buffer_frame_at(target_timestamp)
-            if matched_frame is None:
+        matched_full_frame = self.get_hot_buffer_frame_at(target_timestamp)
+        if matched_full_frame is None:
                 print(f"[camera:{self.camera_id}][mqtt] no matching frame in hot buffer")
                 return
+        full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
+        print("here")
 
-            frame_b64 = base64.b64encode(matched_frame.jpeg_bytes).decode("utf-8")
+        async def run():
+            print("here")
+            response_snapshot, response_full_frame = await asyncio.gather(
+                self.analysis_client.query_description_open([snapshot_b64]),
+                self.analysis_client.query_description_open([full_frame_b64]),
+            )
 
-            fullframe_response = self.analysis_client.query_description_closed(
-                frame_b64,
-                descriptors,
-                image_mime="image/jpeg",
-            )
-            print("fullframe:", fullframe_response["keywords"])
-            save_analysis(
-                created_at=target_timestamp,
-                description=fullframe_response["keywords"],
-            )
-        except Exception as e:
-            print(f"[camera:{self.camera_id}][mqtt] fullframe analysis/save failed: {e}")
+            print(response_snapshot["description"])
+            print(response_full_frame["description"])
+
+        asyncio.run(run())
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")
@@ -319,6 +273,7 @@ class Camera:
 
 def main() -> None:
     from analysis.sync_prisma import LLMClientSync
+    from analysis.async_prisma import LLMClient
 
     load_dotenv()
     camera_ip = "192.168.0.90"
@@ -334,7 +289,7 @@ def main() -> None:
     api_key = os.environ.get("FACADE_API_KEY")
     model = "prisma_gemini_pro"
 
-    llm = LLMClientSync(endpoint, api_key, model)
+    llm = LLMClient(endpoint, api_key, model)
 
     camera = Camera("1", rtsp_url, ffmpeg, broker_host, broker_port,analysis_client=llm, segment_seconds=10)
     

@@ -16,6 +16,11 @@ function Home({ onAnalysClick }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    console.log("Search string updated:", eventData);
+  }, [eventData]);
+    
+
+  useEffect(() => {
     if (!submittedString) {
       setEventData(null);
       setError(null);
@@ -33,6 +38,7 @@ function Home({ onAnalysClick }) {
         }
         const data = await res.json();
         setEventData(data);
+        console.log("Fetched event data:", data);
       } catch (err) {
         setEventData(null);
         setError(err.message);

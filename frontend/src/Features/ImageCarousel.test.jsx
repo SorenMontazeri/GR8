@@ -1,18 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import ImageCarousel from "./ImageCarousel";
 
 describe("ImageCarousel", () => {
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.clearAllMocks();
-  });
-
   it("visar testbilder när searchString saknas", () => {
     render(<ImageCarousel searchString="" />);
 
@@ -21,28 +12,24 @@ describe("ImageCarousel", () => {
     expect(screen.getByText("Visar testbilder")).toBeInTheDocument();
   });
 
-  it("hämtar bilder från API när searchString finns", async () => {
-    fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        images: ["abc123", "def456"],
-      }),
-    });
+  it("visar base64-bilder när de skickas in via props", () => {
+    render(<ImageCarousel searchString="cat" images={["abc123abc123abc123", "def456def456def456"]} />);
 
-    render(<ImageCarousel searchString="cat" />);
-
-    expect(screen.getByText("Laddar sekvens...")).toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(screen.getByRole("img")).toHaveAttribute(
-        "src",
-        "data:image/jpeg;base64,abc123"
-      );
-    });
-
-    expect(fetch).toHaveBeenCalledWith("http://localhost:8000/api/sequence/cat");
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "data:image/jpeg;base64,abc123abc123abc123"
+    );
     expect(screen.getByText("1 / 2")).toBeInTheDocument();
     expect(screen.getByText("Visar: cat")).toBeInTheDocument();
+  });
+
+  it("respekterar redan färdiga data-url:er", () => {
+    render(<ImageCarousel searchString="cat" images={["data:image/jpeg;base64,abc123"]} />);
+
+    expect(screen.getByRole("img")).toHaveAttribute(
+      "src",
+      "data:image/jpeg;base64,abc123"
+    );
   });
 
   it("kan bläddra till nästa bild", async () => {
@@ -56,20 +43,17 @@ describe("ImageCarousel", () => {
     expect(screen.getByText("2 / 2")).toBeInTheDocument();
   });
 
-  it("visar felmeddelande om API returnerar tom lista", async () => {
-    fetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        images: [],
-      }),
-    });
+  it("visar felmeddelande om listan är tom", () => {
+    render(<ImageCarousel searchString="unknown" images={[]} />);
 
-    render(<ImageCarousel searchString="unknown" />);
+    expect(
+      screen.getByText('Ingen sekvens hittades för "unknown"')
+    ).toBeInTheDocument();
+  });
 
-    await waitFor(() => {
-      expect(
-        screen.getByText('Ingen sekvens hittades för "unknown"')
-      ).toBeInTheDocument();
-    });
+  it("visar felmeddelande för ogiltigt bildformat", () => {
+    render(<ImageCarousel searchString="unknown" images={["not a valid image source"]} />);
+
+    expect(screen.getByText("Ogiltigt bildformat i sekvensen.")).toBeInTheDocument();
   });
 });

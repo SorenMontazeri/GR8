@@ -1,20 +1,24 @@
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
+import { normalizeImageSrc } from "../utils/imageSrc";
 
 export default function ImageCarousel({ images = [], searchString }) {
+  useEffect(() => {
+    console.log("ImageCarousel received new props:",  images.length, searchString );
+  }, [images, searchString]);
+  //console.log("Received images for carousel:", images.length);
   const testImages = ["/bird.jpg", "/flower.jpg"];
-  const [displayImages, setDisplayImages] = useState(testImages);
   const [currentIndex, setCurrentIndex] = useState(0);
+  const displayImages = searchString ? images : testImages;
+  const [currentSrc, setCurrentSrc] = useState("");
 
   useEffect(() => {
-    if (!searchString) {
-      setDisplayImages(testImages);
-      setCurrentIndex(0);
-      return;
+    if (displayImages.length > 0) {
+      
+    setCurrentSrc(renderImage());
+    } else {
+      setCurrentSrc("");
     }
-
-    setDisplayImages(images);
-    setCurrentIndex(0);
-  }, [images, searchString]);
+  }, [currentIndex, images]);
 
   const goNext = () => setCurrentIndex((prev) => (prev + 1) % displayImages.length);
   const goPrev = () => setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
@@ -24,12 +28,16 @@ export default function ImageCarousel({ images = [], searchString }) {
   }
 
   const renderImage = () => {
-    const currentImg = displayImages[currentIndex];
-    if (typeof currentImg === "string" && currentImg.startsWith("/")) {
-      return currentImg;
-    }
-    return `data:image/jpeg;base64,${currentImg}`;
+    const safeIndex = currentIndex % displayImages.length;
+    const currentImg = displayImages[safeIndex];
+    return normalizeImageSrc(`data:image/jpeg;base64,${currentImg}`);
   };
+
+  const safeIndex = currentIndex % displayImages.length;
+
+  if (!currentSrc) {
+    return <div className="text-white">Ogiltigt bildformat i sekvensen.</div>;
+  }
 
   return (
     <div className="flex flex-col items-center gap-4">
@@ -43,7 +51,7 @@ export default function ImageCarousel({ images = [], searchString }) {
         
         <div className="relative">
           <img 
-            src={renderImage()} 
+            src={currentSrc} 
             alt={`Bild ${currentIndex + 1}`}
             className="w-[300px] h-[200px] object-cover border-2 border-[#FFCC00] rounded" 
           />
@@ -59,7 +67,7 @@ export default function ImageCarousel({ images = [], searchString }) {
 
       <div className="flex flex-col items-center">
         <span className="text-[#FFCC00] font-bold">
-          {currentIndex + 1} / {displayImages.length}
+          {safeIndex + 1} / {displayImages.length}
         </span>
         <span className="text-gray-400 text-xs mt-1">
           {searchString ? `Visar: ${searchString}` : "Visar testbilder"}

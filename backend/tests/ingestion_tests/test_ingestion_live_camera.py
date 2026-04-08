@@ -126,15 +126,17 @@ class _SpyAnalysisClient:
     def __init__(self) -> None:
         self.calls = []
 
-    def query_description_open(
+    async def query_description_open(
         self,
-        image_b64: str,
+        image_b64,
         image_mime: str = "image/jpeg",
+        sequence: bool = False,
     ) -> dict:
         self.calls.append(
             {
                 "image_b64": image_b64,
                 "image_mime": image_mime,
+                "sequence": sequence,
             }
         )
         return {"description": "stub-description", "keywords": ["stub-keyword"]}

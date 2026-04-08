@@ -3,7 +3,10 @@ import httpx
 import asyncio
 import os
 from dotenv import load_dotenv
-from utils import *
+try:
+    from .utils import *
+except ImportError:
+    from utils import *
 
 
 class LLMClient:

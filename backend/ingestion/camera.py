@@ -119,7 +119,10 @@ class Camera:
             print(response_snapshot["description"])
             print(response_full_frame["description"])
 
-        asyncio.run(run())
+        try:
+            asyncio.run(run())
+        except Exception as exc:
+            print(f"[camera:{self.camera_id}][mqtt] analysis failed: {exc}")
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")

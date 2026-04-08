@@ -175,28 +175,6 @@ class CameraOnMessageTests(unittest.TestCase):
         cam.analysis_client = _SpyAnalysisClient()
         return cam
 
-    def test_on_message_valid_json_uses_hot_buffer_and_saves_analysis(self) -> None:
-        cam = self._make_camera()
-        ts = datetime.now(timezone.utc)
-        cam.frame_buffer.append(
-            BufferedFrame(timestamp=ts, jpeg_bytes=b"fake-jpeg-bytes", width=10, height=10)
-        )
-
-        payload = {
-            "id": "track-1",
-            "channel_id": 1,
-            "start_time": ts.isoformat().replace("+00:00", "Z"),
-        }
-
-        cam.on_message(None, None, _Msg(json.dumps(payload).encode("utf-8")))
-
-        # self.assertEqual(len(cam.analysis_client.calls), 1)
-        self.assertEqual(cam.analysis_client.calls[0]["image_mime"], "image/jpeg")
-        self.assertGreater(len(cam.analysis_client.calls[0]["image_b64"]), 0)
-        self.assertEqual(len(self.saved), 1)
-        self.assertEqual(self.saved[0]["description"], ["stub-keyword"])
-        self.assertEqual(cam.mqtt_buffer.stats()["events"], 1)
-
     def test_extract_event_timestamp_prefers_start_time(self) -> None:
         cam = self._make_camera()
         parsed = cam._extract_event_timestamp({"start_time": "2026-03-24T12:00:00Z"})

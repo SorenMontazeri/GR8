@@ -302,6 +302,12 @@ def main() -> None:
 
     camera.stop_recording()
 
+def frame_selection_1(start_time: datetime, end_time: datetime) -> list[datetime]:
+    #TODO implement frame selection strategy 1, e.g. select frames at regular intervals, or select frames based on motion/activity if that data is available in the MQTT events
+    pass
+    
+
+
 
 if __name__ == "__main__":
     main()

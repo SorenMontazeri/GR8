@@ -704,9 +704,9 @@ def seed_test_data():
     # Reference recording: recordings/1/D2026-02-09-T11-51-00.mp4
     base_video_time = datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ)
     event_start = base_video_time + timedelta(seconds=1)
-    event_end = base_video_time + timedelta(seconds=9)
-    snapshot_ts = base_video_time + timedelta(seconds=3)
-    full_frame_ts = base_video_time + timedelta(seconds=8)
+    event_end = base_video_time + timedelta(seconds=6)
+    snapshot_ts = base_video_time + timedelta(seconds=2)
+    full_frame_ts = base_video_time + timedelta(seconds=3)
 
     snapshot_b64 = None
     try:
@@ -732,4 +732,5 @@ def seed_test_data():
 
 if __name__ == "__main__":
     #seed_test_data()
+    seed_test_data()
     uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

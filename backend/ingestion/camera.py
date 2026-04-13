@@ -70,6 +70,12 @@ class Camera:
         self._buffer_thread: threading.Thread | None = None
         self.analysis_client = analysis_client
 
+        # Fix for asyncio
+        self._async_loop = asyncio.new_event_loop()
+        self._async_thread: threading.Thread | None = None
+        self._async_loop_ready = threading.Event()
+        self.init_async_loop()
+
         self.init_recording(ffmpeg, segment_seconds)
         self.init_buffer()
         self.init_mqtt(broker_host, broker_port)
@@ -84,6 +90,36 @@ class Camera:
         self.mqtt_client.on_message = self.on_message
         self.mqtt_client.subscribe(f"camera/{self.camera_id}")
         self.mqtt_client.loop_start()
+
+    def init_async_loop(self) -> None:
+        self._async_thread = threading.Thread(
+            target=self._async_loop_thread_main,
+            name=f"camera-{self.camera_id}-async-loop",
+            daemon=True,
+        )
+        self._async_thread.start()
+
+        if not self._async_loop_ready.wait(timeout=5.0):
+            raise RuntimeError(f"[camera:{self.camera_id}] async loop failed to start")
+
+    def _async_loop_thread_main(self) -> None:
+        asyncio.set_event_loop(self._async_loop)
+        self._async_loop_ready.set()
+        self._async_loop.run_forever()
+
+    async def _run_analysis(
+        self,
+        snapshot_b64: str,
+        full_frame_b64: str,
+        selection_1_images: list[str],
+        selection_2_images: list[str],
+    ) -> tuple[Any, Any, Any, Any]:
+        return await asyncio.gather(
+            self.analysis_client.query_description_open([snapshot_b64]),
+            self.analysis_client.query_description_open([full_frame_b64]),
+            self.analysis_client.query_description_open(selection_1_images, sequence=True),
+            self.analysis_client.query_description_open(selection_2_images, sequence=True),
+        )
 
     def on_message(self, client, userdata, msg) -> None:
         try:
@@ -127,39 +163,45 @@ class Camera:
             selection_2_images = [full_frame_b64]
             selection_2_timestamps = [target_start_time]
 
-        async def run():
-            return await asyncio.gather(
-                self.analysis_client.query_description_open([snapshot_b64]),
-                self.analysis_client.query_description_open([full_frame_b64]),
-                self.analysis_client.query_description_open(selection_1_images, sequence = True),
-                self.analysis_client.query_description_open(selection_2_images, sequence = True)
-            )
 
         try:
-            response_snapshot, response_full_frame, response_selection_1, response_selection_2 = asyncio.run(run())
-            # save_description_bundle(target_start_time, 
-            #                     target_end_time, 
-            #                     datetime.now(timezone.utc),
-            #                     response_selection_1["description"],
-            #                     response_selection_2["description"],
-            #                     response_snapshot["description"],
-            #                     response_full_frame["description"],
-            #                     selection_1_timestamps,
-            #                     selection_2_timestamps,
-            #                     target_start_time,
-            #                     matched_full_frame.timestamp,
-            #                     snapshot_b64)
+            future = asyncio.run_coroutine_threadsafe(
+                self._run_analysis(
+                    snapshot_b64=snapshot_b64,
+                    full_frame_b64=full_frame_b64,
+                    selection_1_images=selection_1_images,
+                    selection_2_images=selection_2_images,
+                ),
+                self._async_loop,
+            )
+            response_snapshot, response_full_frame, response_selection_1, response_selection_2 = future.result(timeout=60)
+
         except Exception as exc:
-            print(f"[camera:{self.camera_id}][mqtt] analysis failed: {exc}")
+            print(f"[camera:{self.camera_id}] analysis failed: {exc}")
             return
         
-
         print(response_snapshot)
         print(response_full_frame)
         print(response_selection_1)
         print(response_selection_2)
 
-        
+        try:
+            save_description_bundle(
+                target_start_time,
+                target_end_time,
+                datetime.now(timezone.utc),
+                response_selection_1["description"],
+                response_selection_2["description"],
+                response_snapshot["description"],
+                response_full_frame["description"],
+                selection_1_timestamps,
+                selection_2_timestamps,
+                target_start_time,
+                matched_full_frame.timestamp,
+                snapshot_b64,
+            )
+        except Exception as exc:
+            print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
 
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:

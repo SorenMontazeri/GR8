@@ -102,17 +102,30 @@ class Camera:
         target_end_time = self._extract_event_end_time(data)
         image = data.get("image")
         snapshot_b64 = image.get("data") if isinstance(image, dict) else None
+        if snapshot_b64 is None:
+            print(f"[camera:{self.camera_id}] missing mqtt snapshot")
+            return
 
 
         matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
         if matched_full_frame is None:
-                print(f"[camera:{self.camera_id}][mqtt] no matching frame in hot buffer")
+                print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
                 return
         full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
         print("here")
 
         selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
         selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
+
+
+        # Temporary solution for short consolodated, might have to prune short consolodated
+        if not selection_1_images and not selection_1_timestamps:
+            selection_1_images = [full_frame_b64]
+            selection_1_timestamps = [target_start_time]
+
+        if not selection_2_images and not selection_2_timestamps:
+            selection_2_images = [full_frame_b64]
+            selection_2_timestamps = [target_start_time]
 
         async def run():
             return await asyncio.gather(
@@ -124,22 +137,29 @@ class Camera:
 
         try:
             response_snapshot, response_full_frame, response_selection_1, response_selection_2 = asyncio.run(run())
+            # save_description_bundle(target_start_time, 
+            #                     target_end_time, 
+            #                     datetime.now(timezone.utc),
+            #                     response_selection_1["description"],
+            #                     response_selection_2["description"],
+            #                     response_snapshot["description"],
+            #                     response_full_frame["description"],
+            #                     selection_1_timestamps,
+            #                     selection_2_timestamps,
+            #                     target_start_time,
+            #                     matched_full_frame.timestamp,
+            #                     snapshot_b64)
         except Exception as exc:
             print(f"[camera:{self.camera_id}][mqtt] analysis failed: {exc}")
             return
+        
 
-        save_description_bundle(target_start_time, 
-                                target_end_time, 
-                                datetime.now(timezone.utc),
-                                response_selection_1["description"],
-                                response_selection_2["description"],
-                                response_snapshot["description"],
-                                response_full_frame["description"],
-                                selection_1_timestamps,
-                                selection_2_timestamps,
-                                target_start_time,
-                                matched_full_frame.timestamp,
-                                snapshot_b64)
+        print(response_snapshot)
+        print(response_full_frame)
+        print(response_selection_1)
+        print(response_selection_2)
+
+        
 
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:

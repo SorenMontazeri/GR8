@@ -13,6 +13,8 @@ backend/analysis/test.json
 backend/analysis/test.webp
 backend/analysis/test1.json
 backend/analysis/test2.json
+**.codex
+
 # Created by https://www.toptal.com/developers/gitignore/api/node
 # Edit at https://www.toptal.com/developers/gitignore?templates=node
 
@@ -28,6 +30,8 @@ lerna-debug.log*
 
 # Models
 backend/models/
+backend/ingestion/models/
+
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json

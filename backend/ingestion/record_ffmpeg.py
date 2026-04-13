@@ -1,19 +1,28 @@
 import os
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 
 import imageio_ffmpeg
 
+RECORDINGS_ROOT = Path(__file__).resolve().parent.parent / "database" / "recordings"
+
+
+def _recordings_directory(camera_id: str | int) -> Path:
+    camera_id = str(camera_id)
+    output_directory = RECORDINGS_ROOT / camera_id
+    output_directory.mkdir(parents=True, exist_ok=True)
+    return output_directory
+
+
 def record_once(ffmpeg, rtsp_url, camera_id, duration_seconds):
     # setup directory
-    camera_id = str(camera_id)
-    output_directory= os.path.join(os.path.dirname(__file__), "..", "recordings", camera_id,)
-    os.makedirs(output_directory, exist_ok=True)
+    output_directory = _recordings_directory(camera_id)
 
     # single output file (UTC timestamp)
     now = datetime.now(timezone.utc)
     file_name = f"D{now.strftime('%Y-%m-%d-T%H-%M-%S')}.mp4"
-    output_file = os.path.join(output_directory, file_name)
+    output_file = str(output_directory / file_name)
 
     cmd = [
         ffmpeg,
@@ -43,10 +52,8 @@ def record_once(ffmpeg, rtsp_url, camera_id, duration_seconds):
 def start_recording_ffmpeg(ffmpeg, rtsp_url, camera_id, segment_seconds=10): # Will create a seperate process, pls be careful
 
     # setup directory
-    camera_id = str(camera_id)
-    output_directory= os.path.join(os.path.dirname(__file__), "..", "recordings", camera_id,)
-    os.makedirs(output_directory, exist_ok=True)
-    file = os.path.join(output_directory, "D%Y-%m-%d-T%H-%M-%S.mp4")
+    output_directory = _recordings_directory(camera_id)
+    file = str(output_directory / "D%Y-%m-%d-T%H-%M-%S.mp4")
 
     cmd = [
         ffmpeg,

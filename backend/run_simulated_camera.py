@@ -3,7 +3,7 @@
 # Starta simulerad kamera från GR8/backend:
 # source .venv/bin/activate
 # python run_simulated_camera.py \
-#   --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+#   --video database/recordings/1/D2026-03-31-T14-04-45.mp4 \
 #   --events replay_out/live_events.jsonl \
 #   --camera-id 1 \
 #   --auto-filter-events \
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -67,6 +68,21 @@ def _wait_for_rtsp(rtsp_url: str, timeout_seconds: float = 20.0) -> None:
         time.sleep(0.5)
 
     raise RuntimeError(last_error)
+
+
+def _wait_for_tcp_listener(host: str, port: int, timeout_seconds: float = 10.0) -> None:
+    deadline = time.time() + timeout_seconds
+    last_error = f"TCP listener {host}:{port} did not become available in time."
+
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                return
+        except OSError as exc:
+            last_error = str(exc)
+            time.sleep(0.2)
+
+    raise RuntimeError(f"{host}:{port} is not reachable yet: {last_error}")
 
 
 def _terminate_process(process: subprocess.Popen[str] | None, name: str) -> None:
@@ -141,7 +157,7 @@ def main() -> int:
                 prefix="mediamtx",
                 cwd=backend_dir,
             )
-            time.sleep(1.0)
+            _wait_for_tcp_listener(args.rtsp_host, args.rtsp_port)
 
         if not args.skip_mosquitto:
             mosquitto_process = _start_process(
@@ -149,7 +165,7 @@ def main() -> int:
                 prefix="mosquitto",
                 cwd=backend_dir,
             )
-            time.sleep(1.0)
+            _wait_for_tcp_listener(args.broker_host, args.broker_port)
 
         simulator_cmd = [
             python_executable,
@@ -186,7 +202,20 @@ def main() -> int:
 
         simulator_process = _start_process(simulator_cmd, prefix="simulator", cwd=backend_dir)
 
-        _wait_for_rtsp(rtsp_url)
+        deadline = time.time() + 30.0
+        last_error = "RTSP stream did not become available in time."
+        while time.time() < deadline:
+            if simulator_process.poll() is not None:
+                raise RuntimeError(
+                    f"simulator process exited unexpectedly with code {simulator_process.returncode}"
+                )
+            try:
+                _wait_for_rtsp(rtsp_url, timeout_seconds=2.0)
+                break
+            except RuntimeError as exc:
+                last_error = str(exc)
+        else:
+            raise RuntimeError(last_error)
         print("[camera-runner] simulated camera is live")
         print(f"[camera-runner] RTSP read URL: {rtsp_url}")
         if not args.no_mqtt:

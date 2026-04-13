@@ -233,7 +233,7 @@ Om `--events` pekar på en större rå livefil, till exempel `replay_out/live_ev
 
 ```bash
 PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+  --video database/recordings/1/D2026-03-31-T14-04-45.mp4 \
   --events replay_out/live_events.jsonl \
   --camera-id 1 \
   --broker-host 127.0.0.1 \
@@ -274,7 +274,7 @@ Om du bara vill starta den simulerade kameran och infrastrukturen, men köra ing
 cd GR8/backend
 source .venv/bin/activate
 python run_simulated_camera.py \
-  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+  --video database/recordings/1/D2026-03-31-T14-04-45.mp4 \
   --events replay_out/live_events.jsonl \
   --camera-id 1 \
   --auto-filter-events \
@@ -421,7 +421,7 @@ mosquitto -p 1883
 cd GR8/backend
 source .venv/bin/activate
 PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+  --video database/recordings/1/D2026-03-31-T14-04-45.mp4 \
   --events replay_out/live_events.jsonl \
   --camera-id 1 \
   --broker-host 127.0.0.1 \

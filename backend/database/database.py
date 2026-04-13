@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import base64
+from functools import lru_cache
 import json
 import os
 
@@ -16,7 +17,10 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
-RECORDINGS_DIR = str(Path(__file__).resolve().parent / "recordings/1")
+RECORDINGS_DIR_CANDIDATES = [
+    Path(__file__).resolve().parent / "recordings" / "1",
+    Path(__file__).resolve().parent.parent / "recordings" / "1",
+]
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -306,6 +310,52 @@ def create_database() -> None:
     conn.close()
 
 
+def _recordings_dir() -> Path:
+    for candidate in RECORDINGS_DIR_CANDIDATES:
+        if candidate.is_dir():
+            return candidate
+    return RECORDINGS_DIR_CANDIDATES[0]
+
+
+def _recording_start_from_name(filename: str) -> datetime | None:
+    try:
+        return datetime.strptime(filename, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
+    except ValueError:
+        return None
+
+
+@lru_cache(maxsize=512)
+def _video_duration_seconds(video_path: str) -> float | None:
+    cap = cv2.VideoCapture(video_path)
+    try:
+        if not cap.isOpened():
+            return None
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        if fps and frame_count:
+            duration = frame_count / fps
+            if duration > 0:
+                return float(duration)
+        return None
+    finally:
+        cap.release()
+
+
+def _available_recordings() -> list[tuple[datetime, Path, float | None]]:
+    recordings_dir = _recordings_dir()
+    if not recordings_dir.is_dir():
+        return []
+
+    recordings: list[tuple[datetime, Path, float | None]] = []
+    for filename in sorted(os.listdir(recordings_dir)):
+        start = _recording_start_from_name(filename)
+        if start is None:
+            continue
+        path = recordings_dir / filename
+        recordings.append((start, path, _video_duration_seconds(str(path))))
+    return recordings
+
+
 def _to_iso(ts: datetime | str) -> str:
     if isinstance(ts, datetime):
         return ts.isoformat()
@@ -563,36 +613,43 @@ def image_from_timestamp(t, clip=10):
     # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen, 
     # ta ut den framen som söks efter och konvertera den till bas64. 
     local_t = t.astimezone(RECORDINGS_TZ) if t.tzinfo is not None else t.replace(tzinfo=RECORDINGS_TZ)
+    recordings_dir = _recordings_dir()
+    recordings_dir_str = str(recordings_dir)
 
-    if not os.path.isdir(RECORDINGS_DIR):
+    if not recordings_dir.is_dir():
         message = (
             f"Ingen matchande video: recordings directory does not exist "
-            f"(dir={RECORDINGS_DIR}, timestamp={local_t.isoformat()})"
+            f"(dir={recordings_dir_str}, timestamp={local_t.isoformat()})"
         )
         print(f"[database] {message}")
         raise FileNotFoundError(message)
 
-    filenames = sorted(os.listdir(RECORDINGS_DIR))
-    for f in filenames:
-        try:
-            s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
-            if s <= local_t < s + timedelta(seconds=clip):
-                p = os.path.join(RECORDINGS_DIR, f)
-                cap = cv2.VideoCapture(p)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int((local_t - s).total_seconds() * cap.get(cv2.CAP_PROP_FPS)))
+    recordings = _available_recordings()
+    filenames = [path.name for _, path, _ in recordings]
+    for start, path, duration in recordings:
+        effective_duration = duration if duration and duration > 0 else clip
+        if start <= local_t < start + timedelta(seconds=effective_duration):
+            cap = cv2.VideoCapture(str(path))
+            try:
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                if not fps or fps <= 0:
+                    raise RuntimeError("Kunde inte läsa video FPS")
+                frame_index = max(0, int((local_t - start).total_seconds() * fps))
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
                 ok, frame = cap.read()
-                cap.release()
                 if not ok:
                     raise RuntimeError("Kunde inte läsa frame")
 
-                _, buffer = cv2.imencode(".jpg", frame)
+                ok, buffer = cv2.imencode(".jpg", frame)
+                if not ok:
+                    raise RuntimeError("Kunde inte JPEG-enkoda frame")
                 return base64.b64encode(buffer).decode("utf-8")
-        except ValueError:
-            continue
+            finally:
+                cap.release()
 
     sample_files = ", ".join(filenames[:5]) if filenames else "no files found"
     message = (
-        f"Ingen matchande video for timestamp {local_t.isoformat()} in {RECORDINGS_DIR}. "
+        f"Ingen matchande video for timestamp {local_t.isoformat()} in {recordings_dir_str}. "
         f"Checked {len(filenames)} file(s). Sample: {sample_files}"
     )
     print(f"[database] {message}")
@@ -683,7 +740,11 @@ def find_best_event(query):
                 continue
 
             score = cosine_similarity(query_embedding, desc_embedding)
-            if best_score is None or score > best_score:
+            if (
+                best_score is None
+                or score > best_score
+                or (score == best_score and (best_group_id is None or row["group_id"] > best_group_id))
+            ):
                 best_score = score
                 best_group_id = row["group_id"]
                 best_matched_row_id = desc_id
@@ -701,12 +762,38 @@ def find_best_event(query):
 
 
 def seed_test_data():
-    # Reference recording: recordings/1/D2026-02-09-T11-51-00.mp4
-    base_video_time = datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ)
-    event_start = base_video_time + timedelta(seconds=1)
-    event_end = base_video_time + timedelta(seconds=6)
-    snapshot_ts = base_video_time + timedelta(seconds=2)
-    full_frame_ts = base_video_time + timedelta(seconds=3)
+    recordings = _available_recordings()
+    if not recordings:
+        print("[database] seed_test_data skipped: no recordings found")
+        return
+
+    base_video_time, _, duration = recordings[0]
+    duration = duration if duration and duration > 0 else 10.0
+    safe_end_offset = max(0.4, duration - 0.1)
+    event_start_offset = min(0.2, max(0.0, duration * 0.1))
+    event_end_offset = max(event_start_offset + 0.1, min(safe_end_offset, duration * 0.8))
+    snapshot_offset = min(max(event_start_offset + 0.2, duration * 0.4), safe_end_offset)
+    full_frame_offset = min(max(snapshot_offset + 0.2, duration * 0.6), safe_end_offset)
+
+    event_start = base_video_time + timedelta(seconds=event_start_offset)
+    event_end = base_video_time + timedelta(seconds=event_end_offset)
+    snapshot_ts = base_video_time + timedelta(seconds=snapshot_offset)
+    full_frame_ts = base_video_time + timedelta(seconds=full_frame_offset)
+
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM description_group
+        WHERE timestamp_start = ? AND timestamp_end = ?;
+        """,
+        (_to_iso(event_start), _to_iso(event_end)),
+    )
+    existing_group = cur.fetchone()
+    conn.close()
+    if existing_group is not None:
+        return
 
     snapshot_b64 = None
     try:

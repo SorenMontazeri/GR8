@@ -1,24 +1,25 @@
-import { use, useEffect, useState } from "react";
-import { normalizeImageSrc } from "../utils/imageSrc";
+import { useEffect, useMemo, useState } from "react";
 
 export default function ImageCarousel({ images = [], searchString }) {
   useEffect(() => {
     console.log("ImageCarousel received new props:",  images.length, searchString );
   }, [images, searchString]);
-  //console.log("Received images for carousel:", images.length);
+
   const testImages = ["/bird.jpg", "/flower.jpg"];
   const [currentIndex, setCurrentIndex] = useState(0);
-  const displayImages = searchString ? images : testImages;
-  const [currentSrc, setCurrentSrc] = useState("");
+  const displayImages = useMemo(() => {
+    if (!searchString) {
+      return testImages;
+    }
+
+    return images
+      .filter((image) => typeof image === "string" && image.trim().length > 0)
+      .map((image) => `data:image/jpeg;base64,${image.trim()}`);
+  }, [images, searchString]);
 
   useEffect(() => {
-    if (displayImages.length > 0) {
-      
-    setCurrentSrc(renderImage());
-    } else {
-      setCurrentSrc("");
-    }
-  }, [currentIndex, images]);
+    setCurrentIndex(0);
+  }, [searchString, images]);
 
   const goNext = () => setCurrentIndex((prev) => (prev + 1) % displayImages.length);
   const goPrev = () => setCurrentIndex((prev) => (prev - 1 + displayImages.length) % displayImages.length);
@@ -27,17 +28,8 @@ export default function ImageCarousel({ images = [], searchString }) {
     return <div className="text-white">Ingen sekvens hittades för "{searchString}"</div>;
   }
 
-  const renderImage = () => {
-    const safeIndex = currentIndex % displayImages.length;
-    const currentImg = displayImages[safeIndex];
-    return normalizeImageSrc(`data:image/jpeg;base64,${currentImg}`);
-  };
-
   const safeIndex = currentIndex % displayImages.length;
-
-  if (!currentSrc) {
-    return <div className="text-white">Ogiltigt bildformat i sekvensen.</div>;
-  }
+  const currentSrc = displayImages[safeIndex];
 
   return (
     <div className="flex flex-col items-center gap-4">

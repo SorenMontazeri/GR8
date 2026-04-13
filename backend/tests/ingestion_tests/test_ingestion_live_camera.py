@@ -101,10 +101,10 @@ def _ensure_stub_modules() -> None:
         database_pkg = types.ModuleType("database")
         database_mod = types.ModuleType("database.database")
 
-        def _save_analysis(*args, **kwargs):
+        def _save_description_bundle(*args, **kwargs):
             return None
 
-        database_mod.save_analysis = _save_analysis
+        database_mod.save_description_bundle = _save_description_bundle
         database_pkg.database = database_mod
         sys.modules["database"] = database_pkg
         sys.modules["database.database"] = database_mod
@@ -161,10 +161,38 @@ class CameraOnMessageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.saved = []
 
-        def _fake_save_analysis(*, created_at, description):
-            self.saved.append({"created_at": created_at, "description": description})
+        def _fake_save_description_bundle(
+            timestamp_start,
+            timestamp_end,
+            created_at,
+            uniform_llm_description,
+            varied_llm_description,
+            snapshot_llm_description,
+            full_frame_llm_description,
+            uniform_timestamps,
+            varied_timestamps,
+            snapshot_timestamp,
+            full_frame_timestamp,
+            snapshot_image_base64,
+        ):
+            self.saved.append(
+                {
+                    "timestamp_start": timestamp_start,
+                    "timestamp_end": timestamp_end,
+                    "created_at": created_at,
+                    "uniform_llm_description": uniform_llm_description,
+                    "varied_llm_description": varied_llm_description,
+                    "snapshot_llm_description": snapshot_llm_description,
+                    "full_frame_llm_description": full_frame_llm_description,
+                    "uniform_timestamps": uniform_timestamps,
+                    "varied_timestamps": varied_timestamps,
+                    "snapshot_timestamp": snapshot_timestamp,
+                    "full_frame_timestamp": full_frame_timestamp,
+                    "snapshot_image_base64": snapshot_image_base64,
+                }
+            )
 
-        camera_module.save_analysis = _fake_save_analysis
+        camera_module.save_description_bundle = _fake_save_description_bundle
 
     def _make_camera(self) -> Camera:
         cam = Camera.__new__(Camera)

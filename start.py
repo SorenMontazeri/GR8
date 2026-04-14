@@ -5,7 +5,13 @@ import time
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-BACKEND_PYTHON = os.path.join(ROOT, "backend", "venv", "bin", "python")
+BACKEND_PYTHON_DOT = os.path.join(ROOT, "backend", ".venv", "bin", "python")
+BACKEND_PYTHON_VENV = os.path.join(ROOT, "backend", "venv", "bin", "python")
+
+if os.path.exists(BACKEND_PYTHON_DOT):
+    BACKEND_PYTHON = BACKEND_PYTHON_DOT
+else:
+    BACKEND_PYTHON = BACKEND_PYTHON_VENV
 
 
 def main():

@@ -181,7 +181,7 @@ class LLMClient:
             RuntimeError: If the HTTP request fails or the endpoint returns an error status.
             ValueError: If the endpoint returns invalid JSON or `base64images` is empty.
         """
-        print("sending")
+        print(f"sending {len(base64images)} images")
         if not base64images or len(base64images) == 0:
             raise ValueError("base64images list cannot be empty")
 
@@ -253,7 +253,7 @@ class LLMClient:
             raise RuntimeError(f"Request to LLM endpoint failed: {exc}") from exc
 
         try:
-            print("sent")
+            print(f"sent {len(base64images)} images")
             return parse_llm_response(response.json())
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc

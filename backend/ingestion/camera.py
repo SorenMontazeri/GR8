@@ -148,11 +148,9 @@ class Camera:
                 print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
                 return
         full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
-        print("here")
 
         selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
         selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
-
 
         # Temporary solution for short consolodated, might have to prune short consolodated
         if not selection_1_images and not selection_1_timestamps:

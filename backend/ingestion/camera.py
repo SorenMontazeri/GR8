@@ -117,8 +117,8 @@ class Camera:
         return await asyncio.gather(
             self.analysis_client.query_description_open([snapshot_b64]),
             self.analysis_client.query_description_open([full_frame_b64]),
-            self.analysis_client.query_description_open(selection_1_images, sequence=True),
-            self.analysis_client.query_description_open(selection_2_images, sequence=True),
+            self.analysis_client.query_description_open(selection_1_images),
+            self.analysis_client.query_description_open(selection_2_images),
         )
 
     def on_message(self, client, userdata, msg) -> None:

@@ -152,7 +152,7 @@ class LLMClient:
         except json.JSONDecodeError as exc:
             raise ValueError("LLM endpoint returned invalid JSON") from exc
 
-    async def query_description_open(self, base64images, image_mime="image/jpeg", sequence=False):
+    async def query_description_open(self, base64images, image_mime="image/jpeg"):
         """
         Analyze one or more images and return a concise natural-language description.
 
@@ -163,17 +163,14 @@ class LLMClient:
             }
 
         The model is instructed to:
-        - describe what happens in the image when `sequence` is False
-        - describe what happens across the image sequence when `sequence` is True
+        - describe what happens in the image when a single image is provided
+        - describe what happens across the image sequence when multiple images are provided
         - avoid any additional fields
 
         Args:
             base64images (list[str]): List of base64-encoded image contents.
             image_mime (str, optional): MIME type of the encoded images.
                 Defaults to "image/jpeg".
-            sequence (bool, optional): Whether to interpret `base64images` as an
-                ordered sequence. Defaults to False.
-
         Returns:
             dict: Parsed structured response, typically produced by `parse_llm_response`.
 
@@ -186,23 +183,23 @@ class LLMClient:
             raise ValueError("base64images list cannot be empty")
 
         # Build content array with all images
-        if sequence == False:
-             content = [
-                {
-                    "type": "text",
-                    "text": (
-                        "Analyze the provided image and return a concise natural-language description of what happens in the image.\n\n"
-                        "Return ONLY JSON that matches the schema.\n"
-                        "Do not include extra fields."
-                    ),
-                }
-            ]
-        else:  
+        if len(base64images) > 1:
             content = [
                 {
                     "type": "text",
                     "text": (
                         "Analyze the provided sequence of images and return a concise natural-language description of what happens across the sequence.\n\n"
+                        "Return ONLY JSON that matches the schema.\n"
+                        "Do not include extra fields."
+                    ),
+                }
+            ]
+        else:
+            content = [
+                {
+                    "type": "text",
+                    "text": (
+                        "Analyze the provided image and return a concise natural-language description of what happens in the image.\n\n"
                         "Return ONLY JSON that matches the schema.\n"
                         "Do not include extra fields."
                     ),

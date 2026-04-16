@@ -16,7 +16,9 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
-RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
+#RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
+RECORDINGS_DIR = str(Path(__file__).resolve().parent / "recordings/1")
+
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"

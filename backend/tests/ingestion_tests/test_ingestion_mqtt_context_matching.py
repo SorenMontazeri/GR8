@@ -84,7 +84,7 @@ def _ensure_stub_modules() -> None:
     if "database.database" not in sys.modules:
         database_pkg = types.ModuleType("database")
         database_mod = types.ModuleType("database.database")
-        database_mod.save_analysis = lambda *args, **kwargs: None
+        database_mod.save_description_bundle = lambda *args, **kwargs: None
         database_pkg.database = database_mod
         sys.modules["database"] = database_pkg
         sys.modules["database.database"] = database_mod

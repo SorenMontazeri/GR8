@@ -2,7 +2,7 @@ import { use, useEffect, useState } from "react";
 import { normalizeImageSrc } from "../utils/imageSrc";
 
 export default function ImageCarousel({ images = [], searchString }) {
-  // Den här useEffecten körs när nya bilder eller ett nytt sökord kommer in.
+  // Den här useEffecten körs när nya bilder eller ett nytt sökord kommer.
   // Just nu används den bara för att skriva ut information i konsolen.
   useEffect(() => {
     console.log("ImageCarousel received new props:",  images.length, searchString );

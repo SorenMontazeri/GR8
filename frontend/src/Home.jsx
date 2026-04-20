@@ -7,18 +7,33 @@ import Seq2 from "./components/Sequence2.jsx";
 import Snapshot from "./components/Snapshot.jsx";
 import LikeButton from "./components/LikeButton";
 import ImageCarousel from "./Features/ImageCarousel";
-
+import StarRating from "./components/StarRating";
 function Home({ onAnalysClick }) {
   const [searchString, setString] = useState("");
   const [submittedString, setSubmittedString] = useState(null);
   const [eventData, setEventData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [ratings, setRatings] = useState({
+  full_frame: 0,
+  snapshot: 0,
+  uniform: 0,
+  varied: 0,
+});
 
   useEffect(() => {
     console.log("Search string updated:", eventData);
   }, [eventData]);
     
+
+
+function handleRatingChange(imageType, newRating) {
+  setRatings((prev) => ({
+    ...prev,
+    [imageType]: newRating,
+  }));
+}
+
 
   useEffect(() => {
     if (!submittedString) {
@@ -75,12 +90,23 @@ function Home({ onAnalysClick }) {
                 <div className="App flex flex-col">
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
                           <FullFrameImage searchString={submittedString} eventData={eventData?.full_frame} />
-                          <LikeButton groupId={groupId} imageType="full_frame" />
+                         {/* <LikeButton groupId={groupId} imageType="full_frame" />} */}
+                         <StarRating
+                            value={ratings.full_frame}
+                            groupId={groupId}
+                            imageType="full_frame"
+            onChange={(newRating) => handleRatingChange("full_frame", newRating)}
+          />
                 </div> 
                 <div className="App flex flex-col">
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot Image</h2>
                     <Snapshot searchString={submittedString} eventData={eventData?.snapshot} />
-                    <LikeButton groupId={groupId} imageType="snapshot" />
+                    <StarRating
+            value={ratings.snapshot}
+            groupId={groupId}
+            imageType="snapshot"
+            onChange={(newRating) => handleRatingChange("snapshot", newRating)}
+          />
                 </div> 
 
         </div> 
@@ -90,15 +116,23 @@ function Home({ onAnalysClick }) {
         
         <ImageCarousel searchString={submittedString} images={eventData?.uniform?.images || []} />
         <Seq1 searchString={submittedString} eventData={eventData?.uniform} />
-        <LikeButton groupId={groupId} imageType="uniform" />
-
+<StarRating
+            value={ratings.uniform}
+            groupId={groupId}
+            imageType="uniform"
+            onChange={(newRating) => handleRatingChange("uniform", newRating)}
+          />
         <hr className="border-[#555] my-4" /> {/* En linje för att dela upp */}
 
         <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens 2 Varied</h2>
         <ImageCarousel searchString={submittedString} images={eventData?.varied?.images || []} />
         <Seq2 searchString={submittedString} eventData={eventData?.varied} />
-        <LikeButton groupId={groupId} imageType="varied" />
-        </div> 
+<StarRating
+            value={ratings.varied}
+            groupId={groupId}
+            imageType="varied"
+            onChange={(newRating) => handleRatingChange("varied", newRating)}
+          />        </div> 
 
     </div>
   );

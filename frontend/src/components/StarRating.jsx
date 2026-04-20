@@ -9,15 +9,15 @@ export default function StarRating({ value = 0, onChange, groupId, imageType }) 
     if (!groupId) return;
 
     try {
-      await fetch("http://localhost:8000/api/rating", {
+      await fetch("http://localhost:8000/api/feedback", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           group_id: groupId,
-          image_type: imageType,
-          rating: star,
+          description_type: imageType,
+          feedback: star,
         }),
       });
     } catch (err) {

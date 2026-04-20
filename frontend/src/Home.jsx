@@ -5,7 +5,6 @@ import FullFrameImage from "./components/FullFrame.jsx";
 import Seq1 from "./components/Sequence1.jsx";
 import Seq2 from "./components/Sequence2.jsx";
 import Snapshot from "./components/Snapshot.jsx";
-import LikeButton from "./components/LikeButton";
 import ImageCarousel from "./Features/ImageCarousel";
 import StarRating from "./components/StarRating";
 function Home({ onAnalysClick }) {

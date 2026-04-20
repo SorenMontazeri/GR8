@@ -29,6 +29,7 @@ created at
 list of all timestamps in json
 LLM description
 embedding for description
+number of tokens
 like/dislike
 
 sequence description varied 
@@ -39,6 +40,7 @@ created at
 list of all timestamps in json
 LLM description
 embedding for description
+number of tokens
 like/dislike
 
 snapshot description
@@ -47,6 +49,7 @@ timestamp (primary key)
 created at
 LLM description
 embedding for description
+number of tokens
 like/dislike
 
 full frame description
@@ -55,4 +58,5 @@ timestamp (primary key)
 created at
 LLM description
 embedding for description
+number of tokens
 like/dislike

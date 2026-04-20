@@ -78,6 +78,7 @@ def get_events(query: str):
             u.timestamps_json AS u_timestamps_json,
             u.llm_description AS u_llm_description,
             u.description_embedding AS u_description_embedding,
+            u.number_of_tokens AS u_number_of_tokens,
             u.feedback AS u_feedback,
 
             v.id AS v_id,
@@ -87,6 +88,7 @@ def get_events(query: str):
             v.timestamps_json AS v_timestamps_json,
             v.llm_description AS v_llm_description,
             v.description_embedding AS v_description_embedding,
+            v.number_of_tokens AS v_number_of_tokens,
             v.feedback AS v_feedback,
 
             s.id AS s_id,
@@ -95,6 +97,7 @@ def get_events(query: str):
             s.created_at AS s_created_at,
             s.llm_description AS s_llm_description,
             s.description_embedding AS s_description_embedding,
+            s.number_of_tokens AS s_number_of_tokens,
             s.feedback AS s_feedback,
 
             f.id AS f_id,
@@ -102,6 +105,7 @@ def get_events(query: str):
             f.created_at AS f_created_at,
             f.llm_description AS f_llm_description,
             f.description_embedding AS f_description_embedding,
+            f.number_of_tokens AS f_number_of_tokens,
             f.feedback AS f_feedback
         FROM description_group dg
         LEFT JOIN sequence_description_uniform u ON u.id = dg.sequence_description_uniform_id
@@ -149,6 +153,7 @@ def get_events(query: str):
             "images": uniform_images,
             "llm_description": row["u_llm_description"],
             "description_embedding": _parse_json(row["u_description_embedding"]),
+            "number_of_tokens": row["u_number_of_tokens"],
             "feedback": row["u_feedback"],
         } if row["u_id"] is not None else None,
         "varied": {
@@ -160,6 +165,7 @@ def get_events(query: str):
             "images": varied_images,
             "llm_description": row["v_llm_description"],
             "description_embedding": _parse_json(row["v_description_embedding"]),
+            "number_of_tokens": row["v_number_of_tokens"],
             "feedback": row["v_feedback"],
         } if row["v_id"] is not None else None,
         "snapshot": {
@@ -169,6 +175,7 @@ def get_events(query: str):
             "created_at": row["s_created_at"],
             "llm_description": row["s_llm_description"],
             "description_embedding": _parse_json(row["s_description_embedding"]),
+            "number_of_tokens": row["s_number_of_tokens"],
             "feedback": row["s_feedback"],
         } if row["s_id"] is not None else None,
         "full_frame": {
@@ -178,6 +185,7 @@ def get_events(query: str):
             "created_at": row["f_created_at"],
             "llm_description": row["f_llm_description"],
             "description_embedding": _parse_json(row["f_description_embedding"]),
+            "number_of_tokens": row["f_number_of_tokens"],
             "feedback": row["f_feedback"],
         } if row["f_id"] is not None else None,
     }
@@ -245,6 +253,7 @@ def create_database() -> None:
             timestamps_json TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
+            number_of_tokens INTEGER,
             feedback INTEGER DEFAULT 0
         );
 
@@ -256,6 +265,7 @@ def create_database() -> None:
             timestamps_json TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
+            number_of_tokens INTEGER,
             feedback INTEGER DEFAULT 0
         );
 
@@ -266,6 +276,7 @@ def create_database() -> None:
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
+            number_of_tokens INTEGER,
             feedback INTEGER DEFAULT 0
         );
 
@@ -275,6 +286,7 @@ def create_database() -> None:
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
+            number_of_tokens INTEGER,
             feedback INTEGER DEFAULT 0
         );
 
@@ -302,6 +314,17 @@ def create_database() -> None:
     except sqlite3.OperationalError as exc:
         if "duplicate column name" not in str(exc).lower():
             raise
+    for table_name in (
+        "sequence_description_uniform",
+        "sequence_description_varied",
+        "snapshot_description",
+        "full_frame_description",
+    ):
+        try:
+            cur.execute(f"ALTER TABLE {table_name} ADD COLUMN number_of_tokens INTEGER;")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
     conn.commit()
     conn.close()
 
@@ -333,6 +356,7 @@ def save_sequence_description_uniform(
     timestamps: list[datetime | str],
     llm_description: str,
     description_embedding: str | None = None,
+    number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -344,8 +368,8 @@ def save_sequence_description_uniform(
         """
         INSERT INTO sequence_description_uniform (
             timestamp_start, timestamp_end, created_at, timestamps_json,
-            llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+            llm_description, description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
@@ -354,6 +378,7 @@ def save_sequence_description_uniform(
             timestamps_json,
             llm_description,
             description_embedding,
+            number_of_tokens,
             feedback,
         ),
     )
@@ -370,6 +395,7 @@ def save_sequence_description_varied(
     timestamps: list[datetime | str],
     llm_description: str,
     description_embedding: str | None = None,
+    number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -381,8 +407,8 @@ def save_sequence_description_varied(
         """
         INSERT INTO sequence_description_varied (
             timestamp_start, timestamp_end, created_at, timestamps_json,
-            llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+            llm_description, description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
@@ -391,6 +417,7 @@ def save_sequence_description_varied(
             timestamps_json,
             llm_description,
             description_embedding,
+            number_of_tokens,
             feedback,
         ),
     )
@@ -406,6 +433,7 @@ def save_snapshot_description(
     llm_description: str,
     snapshot_image_base64: str | None = None,
     description_embedding: str | None = None,
+    number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -415,10 +443,19 @@ def save_snapshot_description(
     cur.execute(
         """
         INSERT INTO snapshot_description (
-            timestamp, snapshot_image_base64, created_at, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?);
+            timestamp, snapshot_image_base64, created_at, llm_description,
+            description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
         """,
-        (_to_iso(timestamp), snapshot_image_base64, _to_iso(created_at), llm_description, description_embedding, feedback),
+        (
+            _to_iso(timestamp),
+            snapshot_image_base64,
+            _to_iso(created_at),
+            llm_description,
+            description_embedding,
+            number_of_tokens,
+            feedback,
+        ),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -431,6 +468,7 @@ def save_full_frame_description(
     created_at: datetime | str,
     llm_description: str,
     description_embedding: str | None = None,
+    number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
@@ -440,10 +478,18 @@ def save_full_frame_description(
     cur.execute(
         """
         INSERT INTO full_frame_description (
-            timestamp, created_at, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?);
+            timestamp, created_at, llm_description,
+            description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?);
         """,
-        (_to_iso(timestamp), _to_iso(created_at), llm_description, description_embedding, feedback),
+        (
+            _to_iso(timestamp),
+            _to_iso(created_at),
+            llm_description,
+            description_embedding,
+            number_of_tokens,
+            feedback,
+        ),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -499,6 +545,10 @@ def save_description_bundle(
     snapshot_timestamp: datetime | str | None = None,
     full_frame_timestamp: datetime | str | None = None,
     snapshot_image_base64: str | None = None,
+    uniform_number_of_tokens: int | None = None,
+    varied_number_of_tokens: int | None = None,
+    snapshot_number_of_tokens: int | None = None,
+    full_frame_number_of_tokens: int | None = None,
 ) -> dict[str, int]:
     start_iso = _to_iso(timestamp_start)
     end_iso = _to_iso(timestamp_end)
@@ -519,6 +569,7 @@ def save_description_bundle(
         timestamps=uniform_timestamps,
         llm_description=uniform_llm_description,
         description_embedding=json.dumps(embed(uniform_llm_description)),
+        number_of_tokens=uniform_number_of_tokens,
     )
     varied_id = save_sequence_description_varied(
         timestamp_start=start_iso,
@@ -527,6 +578,7 @@ def save_description_bundle(
         timestamps=varied_timestamps,
         llm_description=varied_llm_description,
         description_embedding=json.dumps(embed(varied_llm_description)),
+        number_of_tokens=varied_number_of_tokens,
     )
     snapshot_id = save_snapshot_description(
         timestamp=snapshot_timestamp,
@@ -534,12 +586,14 @@ def save_description_bundle(
         llm_description=snapshot_llm_description,
         snapshot_image_base64=snapshot_image_base64,
         description_embedding=json.dumps(embed(snapshot_llm_description)),
+        number_of_tokens=snapshot_number_of_tokens,
     )
     full_frame_id = save_full_frame_description(
         timestamp=full_frame_timestamp,
         created_at=created_at,
         llm_description=full_frame_llm_description,
         description_embedding=json.dumps(embed(full_frame_llm_description)),
+        number_of_tokens=full_frame_number_of_tokens,
     )
     group_id = save_description_group(
         timestamp_start=start_iso,

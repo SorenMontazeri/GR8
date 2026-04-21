@@ -30,7 +30,7 @@ list of all timestamps in json
 LLM description
 embedding for description
 number of tokens
-like/dislike
+feedback (0-5)
 
 sequence description varied 
 -----
@@ -41,7 +41,7 @@ list of all timestamps in json
 LLM description
 embedding for description
 number of tokens
-like/dislike
+feedback (0-5)
 
 snapshot description
 -----
@@ -50,7 +50,7 @@ created at
 LLM description
 embedding for description
 number of tokens
-like/dislike
+feedback (0-5)
 
 full frame description
 -----
@@ -59,4 +59,4 @@ created at
 LLM description
 embedding for description
 number of tokens
-like/dislike
+feedback (0-5)

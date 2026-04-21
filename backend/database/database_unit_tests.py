@@ -199,6 +199,76 @@ class DatabaseUnitTests(unittest.TestCase):
             self.assertEqual(result["snapshot"]["number_of_tokens"], 33)
             self.assertEqual(result["full_frame"]["number_of_tokens"], 44)
 
+    def test_update_feedback_accepts_values_0_to_5(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
+            start = datetime(2026, 3, 2, 10, 0, 0)
+            end = datetime(2026, 3, 2, 10, 0, 10)
+            created_at = datetime(2026, 3, 2, 10, 0, 11)
+
+            with patch.object(self.db_module, "embed", return_value=[0.1, 0.2, 0.3]):
+                ids = self.db_module.save_description_bundle(
+                    timestamp_start=start,
+                    timestamp_end=end,
+                    created_at=created_at,
+                    uniform_llm_description="uniform",
+                    varied_llm_description="varied",
+                    snapshot_llm_description="snapshot",
+                    full_frame_llm_description="full_frame",
+                )
+
+            group_id = ids["description_group_id"]
+            uniform_id = ids["sequence_description_uniform_id"]
+
+            self.db_module.update_feedback("uniform", group_id, 5)
+
+            conn = sqlite3.connect(self.db_module.DB_PATH)
+            row = conn.execute(
+                "SELECT feedback FROM sequence_description_uniform WHERE id = ?;",
+                (uniform_id,),
+            ).fetchone()
+            conn.close()
+            self.assertEqual(row[0], 5)
+
+            self.db_module.update_feedback("uniform", group_id, 0)
+            conn = sqlite3.connect(self.db_module.DB_PATH)
+            row = conn.execute(
+                "SELECT feedback FROM sequence_description_uniform WHERE id = ?;",
+                (uniform_id,),
+            ).fetchone()
+            conn.close()
+            self.assertEqual(row[0], 0)
+
+    def test_update_feedback_rejects_values_outside_0_to_5(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
+            start = datetime(2026, 3, 2, 10, 0, 0)
+            end = datetime(2026, 3, 2, 10, 0, 10)
+            created_at = datetime(2026, 3, 2, 10, 0, 11)
+
+            with patch.object(self.db_module, "embed", return_value=[0.1, 0.2, 0.3]):
+                ids = self.db_module.save_description_bundle(
+                    timestamp_start=start,
+                    timestamp_end=end,
+                    created_at=created_at,
+                    uniform_llm_description="uniform",
+                    varied_llm_description="varied",
+                    snapshot_llm_description="snapshot",
+                    full_frame_llm_description="full_frame",
+                )
+
+            group_id = ids["description_group_id"]
+
+            with self.assertRaises(HTTPException) as low_ctx:
+                self.db_module.update_feedback("uniform", group_id, -1)
+            self.assertEqual(low_ctx.exception.status_code, 400)
+            self.assertIn("between 0 and 5", low_ctx.exception.detail)
+
+            with self.assertRaises(HTTPException) as high_ctx:
+                self.db_module.update_feedback("uniform", group_id, 6)
+            self.assertEqual(high_ctx.exception.status_code, 400)
+            self.assertIn("between 0 and 5", high_ctx.exception.detail)
+
 
 if __name__ == "__main__":
     unittest.main()

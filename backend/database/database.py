@@ -42,12 +42,14 @@ FEEDBACK_TARGETS = {
     "snapshot": ("snapshot_description", "snapshot_description_id"),
     "full_frame": ("full_frame_description", "full_frame_description_id"),
 }
+FEEDBACK_MIN = 0
+FEEDBACK_MAX = 5
 
 
 class FeedbackRequest(BaseModel):
     description_type: str
     id: int  # description_group.id
-    feedback: int  # 1 or -1
+    feedback: int  # integer rating in range 0..5
 
 
 @app.get("/api/event/{query}")
@@ -197,6 +199,14 @@ def post_feedback(payload: FeedbackRequest):
 
 
 def update_feedback(description_type: str, group_id: int, feedback_value: int) -> None:
+    try:
+        _validate_feedback_range(feedback_value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"feedback must be an integer between {FEEDBACK_MIN} and {FEEDBACK_MAX}",
+        ) from exc
+
     target = FEEDBACK_TARGETS.get(description_type.strip().lower())
     if target is None:
         raise HTTPException(
@@ -254,7 +264,7 @@ def create_database() -> None:
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             number_of_tokens INTEGER,
-            feedback INTEGER DEFAULT 0
+            feedback INTEGER NOT NULL DEFAULT 0 CHECK (feedback BETWEEN 0 AND 5)
         );
 
         CREATE TABLE IF NOT EXISTS sequence_description_varied (
@@ -266,7 +276,7 @@ def create_database() -> None:
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             number_of_tokens INTEGER,
-            feedback INTEGER DEFAULT 0
+            feedback INTEGER NOT NULL DEFAULT 0 CHECK (feedback BETWEEN 0 AND 5)
         );
 
         CREATE TABLE IF NOT EXISTS snapshot_description (
@@ -277,7 +287,7 @@ def create_database() -> None:
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             number_of_tokens INTEGER,
-            feedback INTEGER DEFAULT 0
+            feedback INTEGER NOT NULL DEFAULT 0 CHECK (feedback BETWEEN 0 AND 5)
         );
 
         CREATE TABLE IF NOT EXISTS full_frame_description (
@@ -287,7 +297,7 @@ def create_database() -> None:
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             number_of_tokens INTEGER,
-            feedback INTEGER DEFAULT 0
+            feedback INTEGER NOT NULL DEFAULT 0 CHECK (feedback BETWEEN 0 AND 5)
         );
 
         CREATE TABLE IF NOT EXISTS description_group (
@@ -335,6 +345,11 @@ def _to_iso(ts: datetime | str) -> str:
     return ts
 
 
+def _validate_feedback_range(feedback_value: int) -> None:
+    if feedback_value < FEEDBACK_MIN or feedback_value > FEEDBACK_MAX:
+        raise ValueError(f"feedback must be between {FEEDBACK_MIN} and {FEEDBACK_MAX}")
+
+
 def save_analysis(created_at: datetime, description: str) -> int:
     create_database()
     conn = sqlite3.connect(DB_PATH)
@@ -359,6 +374,7 @@ def save_sequence_description_uniform(
     number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
+    _validate_feedback_range(feedback)
     create_database()
     timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
 
@@ -398,6 +414,7 @@ def save_sequence_description_varied(
     number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
+    _validate_feedback_range(feedback)
     create_database()
     timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
 
@@ -436,6 +453,7 @@ def save_snapshot_description(
     number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
+    _validate_feedback_range(feedback)
     create_database()
 
     conn = sqlite3.connect(DB_PATH)
@@ -471,6 +489,7 @@ def save_full_frame_description(
     number_of_tokens: int | None = None,
     feedback: int = 0,
 ) -> int:
+    _validate_feedback_range(feedback)
     create_database()
 
     conn = sqlite3.connect(DB_PATH)

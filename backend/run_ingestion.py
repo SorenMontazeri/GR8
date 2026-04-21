@@ -57,6 +57,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stub-analysis", action="store_true", help="Use local stub analysis client.")
     parser.add_argument("--no-analysis", action="store_true", help="Disable analysis entirely.")
     parser.add_argument("--no-mqtt", action="store_true", help="Disable MQTT and only run RTSP + recording + hotbuffer.")
+    parser.add_argument(
+        "--no-recording",
+        action="store_true",
+        help="Disable ffmpeg recording and only run RTSP hotbuffer + MQTT/analysis.",
+    )
     return parser
 
 
@@ -90,12 +95,15 @@ def main() -> int:
         broker_port=args.broker_port,
         analysis_client=analysis_client,
         segment_seconds=args.segment_seconds,
+        enable_recording=not args.no_recording,
     )
 
     print(f"[ingestion-runner] started for camera_id={args.camera_id}")
     print(f"[ingestion-runner] RTSP={args.rtsp_url}")
     if not args.no_mqtt:
         print(f"[ingestion-runner] MQTT={args.broker_host}:{args.broker_port} topic=camera/{args.camera_id}")
+    if args.no_recording:
+        print("[ingestion-runner] recording disabled")
     if args.no_analysis:
         print("[ingestion-runner] analysis disabled")
     elif args.stub_analysis:

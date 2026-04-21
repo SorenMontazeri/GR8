@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import base64
+from functools import lru_cache
 import json
 import os
 
@@ -16,9 +17,10 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
-#RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
-RECORDINGS_DIR = str(Path(__file__).resolve().parent / "recordings/1")
-
+RECORDINGS_DIR_CANDIDATES = [
+    Path(__file__).resolve().parent / "recordings" / "1",
+    Path(__file__).resolve().parent.parent / "recordings" / "1",
+]
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -78,6 +80,7 @@ def get_events(query: str):
             u.timestamp_end AS u_timestamp_end,
             u.created_at AS u_created_at,
             u.timestamps_json AS u_timestamps_json,
+            u.images_base64_json AS u_images_base64_json,
             u.llm_description AS u_llm_description,
             u.description_embedding AS u_description_embedding,
             u.feedback AS u_feedback,
@@ -87,6 +90,7 @@ def get_events(query: str):
             v.timestamp_end AS v_timestamp_end,
             v.created_at AS v_created_at,
             v.timestamps_json AS v_timestamps_json,
+            v.images_base64_json AS v_images_base64_json,
             v.llm_description AS v_llm_description,
             v.description_embedding AS v_description_embedding,
             v.feedback AS v_feedback,
@@ -101,6 +105,7 @@ def get_events(query: str):
 
             f.id AS f_id,
             f.timestamp AS f_timestamp,
+            f.image_base64 AS f_image_base64,
             f.created_at AS f_created_at,
             f.llm_description AS f_llm_description,
             f.description_embedding AS f_description_embedding,
@@ -122,13 +127,16 @@ def get_events(query: str):
 
     uniform_timestamps = _parse_json(row["u_timestamps_json"]) if row["u_timestamps_json"] else []
     varied_timestamps = _parse_json(row["v_timestamps_json"]) if row["v_timestamps_json"] else []
-    uniform_images = _images_from_timestamps(uniform_timestamps)
-    varied_images = _images_from_timestamps(varied_timestamps)
+    uniform_images = _parse_json(row["u_images_base64_json"]) if row["u_images_base64_json"] else _images_from_timestamps(uniform_timestamps)
+    varied_images = _parse_json(row["v_images_base64_json"]) if row["v_images_base64_json"] else _images_from_timestamps(varied_timestamps)
     if row["s_snapshot_image_base64"] is not None:
         snapshot_image = row["s_snapshot_image_base64"]
     else:
         snapshot_image = _safe_image_from_iso(row["s_timestamp"]) if row["s_timestamp"] is not None else None
-    full_frame_image = _safe_image_from_iso(row["f_timestamp"]) if row["f_timestamp"] is not None else None
+    if row["f_image_base64"] is not None:
+        full_frame_image = row["f_image_base64"]
+    else:
+        full_frame_image = _safe_image_from_iso(row["f_timestamp"]) if row["f_timestamp"] is not None else None
 
     return {
         "query": query,
@@ -245,6 +253,7 @@ def create_database() -> None:
             timestamp_end TEXT NOT NULL,
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
+            images_base64_json TEXT,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             feedback INTEGER DEFAULT 0
@@ -256,6 +265,7 @@ def create_database() -> None:
             timestamp_end TEXT NOT NULL,
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
+            images_base64_json TEXT,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             feedback INTEGER DEFAULT 0
@@ -274,6 +284,7 @@ def create_database() -> None:
         CREATE TABLE IF NOT EXISTS full_frame_description (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
+            image_base64 TEXT,
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
@@ -304,8 +315,108 @@ def create_database() -> None:
     except sqlite3.OperationalError as exc:
         if "duplicate column name" not in str(exc).lower():
             raise
+    for table, column in (
+        ("sequence_description_uniform", "images_base64_json"),
+        ("sequence_description_varied", "images_base64_json"),
+        ("full_frame_description", "image_base64"),
+    ):
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} TEXT;")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
     conn.commit()
     conn.close()
+
+
+def _recordings_dir() -> Path:
+    for candidate in RECORDINGS_DIR_CANDIDATES:
+        if candidate.is_dir():
+            return candidate
+    return RECORDINGS_DIR_CANDIDATES[0]
+
+
+def _recording_start_from_name(filename: str) -> datetime | None:
+    try:
+        return datetime.strptime(filename, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
+    except ValueError:
+        return None
+
+
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=RECORDINGS_TZ)
+    return parsed
+
+
+@lru_cache(maxsize=512)
+def _video_duration_seconds(video_path: str) -> float | None:
+    cap = cv2.VideoCapture(video_path)
+    try:
+        if not cap.isOpened():
+            return None
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        if fps and frame_count:
+            duration = frame_count / fps
+            if duration > 0:
+                return float(duration)
+        return None
+    finally:
+        cap.release()
+
+
+def _available_recordings() -> list[tuple[datetime, Path, float | None]]:
+    recordings_dir = _recordings_dir()
+    if not recordings_dir.is_dir():
+        return []
+
+    recordings: list[tuple[datetime, Path, float | None]] = []
+    for filename in sorted(os.listdir(recordings_dir)):
+        start = _recording_start_from_name(filename)
+        if start is None:
+            continue
+        path = recordings_dir / filename
+        recordings.append((start, path, _video_duration_seconds(str(path))))
+    return recordings
+
+
+def _available_session_recordings() -> list[tuple[datetime, Path, float | None]]:
+    recordings_dir = _recordings_dir()
+    if not recordings_dir.is_dir():
+        return []
+
+    sessions: list[tuple[datetime, Path, float | None]] = []
+    for path in sorted(recordings_dir.iterdir()):
+        if not path.is_dir() or not path.name.startswith("session_"):
+            continue
+        manifest_path = path / "manifest.json"
+        video_path = path / "capture.mp4"
+        if not manifest_path.exists() or not video_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        capture_start = _parse_iso_timestamp(manifest.get("capture_start_wallclock"))
+        if capture_start is None:
+            continue
+        sessions.append(
+            (
+                capture_start.astimezone(RECORDINGS_TZ),
+                video_path,
+                _video_duration_seconds(str(video_path)),
+            )
+        )
+    return sessions
 
 
 def _to_iso(ts: datetime | str) -> str:
@@ -333,27 +444,30 @@ def save_sequence_description_uniform(
     timestamp_end: datetime | str,
     created_at: datetime | str,
     timestamps: list[datetime | str],
+    images_base64: list[str] | None,
     llm_description: str,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
     timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
+    images_base64_json = json.dumps(images_base64) if images_base64 is not None else None
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO sequence_description_uniform (
-            timestamp_start, timestamp_end, created_at, timestamps_json,
+            timestamp_start, timestamp_end, created_at, timestamps_json, images_base64_json,
             llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
             _to_iso(timestamp_end),
             _to_iso(created_at),
             timestamps_json,
+            images_base64_json,
             llm_description,
             description_embedding,
             feedback,
@@ -370,27 +484,30 @@ def save_sequence_description_varied(
     timestamp_end: datetime | str,
     created_at: datetime | str,
     timestamps: list[datetime | str],
+    images_base64: list[str] | None,
     llm_description: str,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
     timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
+    images_base64_json = json.dumps(images_base64) if images_base64 is not None else None
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO sequence_description_varied (
-            timestamp_start, timestamp_end, created_at, timestamps_json,
+            timestamp_start, timestamp_end, created_at, timestamps_json, images_base64_json,
             llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
             _to_iso(timestamp_end),
             _to_iso(created_at),
             timestamps_json,
+            images_base64_json,
             llm_description,
             description_embedding,
             feedback,
@@ -432,6 +549,7 @@ def save_full_frame_description(
     timestamp: datetime | str,
     created_at: datetime | str,
     llm_description: str,
+    image_base64: str | None = None,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
@@ -442,10 +560,10 @@ def save_full_frame_description(
     cur.execute(
         """
         INSERT INTO full_frame_description (
-            timestamp, created_at, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?);
+            timestamp, image_base64, created_at, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?);
         """,
-        (_to_iso(timestamp), _to_iso(created_at), llm_description, description_embedding, feedback),
+        (_to_iso(timestamp), image_base64, _to_iso(created_at), llm_description, description_embedding, feedback),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -498,9 +616,12 @@ def save_description_bundle(
     full_frame_llm_description: str,
     uniform_timestamps: list[datetime | str] | None = None,
     varied_timestamps: list[datetime | str] | None = None,
+    uniform_images_base64: list[str] | None = None,
+    varied_images_base64: list[str] | None = None,
     snapshot_timestamp: datetime | str | None = None,
     full_frame_timestamp: datetime | str | None = None,
     snapshot_image_base64: str | None = None,
+    full_frame_image_base64: str | None = None,
 ) -> dict[str, int]:
     start_iso = _to_iso(timestamp_start)
     end_iso = _to_iso(timestamp_end)
@@ -519,6 +640,7 @@ def save_description_bundle(
         timestamp_end=end_iso,
         created_at=created_at,
         timestamps=uniform_timestamps,
+        images_base64=uniform_images_base64,
         llm_description=uniform_llm_description,
         description_embedding=json.dumps(embed(uniform_llm_description)),
     )
@@ -527,6 +649,7 @@ def save_description_bundle(
         timestamp_end=end_iso,
         created_at=created_at,
         timestamps=varied_timestamps,
+        images_base64=varied_images_base64,
         llm_description=varied_llm_description,
         description_embedding=json.dumps(embed(varied_llm_description)),
     )
@@ -541,6 +664,7 @@ def save_description_bundle(
         timestamp=full_frame_timestamp,
         created_at=created_at,
         llm_description=full_frame_llm_description,
+        image_base64=full_frame_image_base64,
         description_embedding=json.dumps(embed(full_frame_llm_description)),
     )
     group_id = save_description_group(
@@ -565,36 +689,45 @@ def image_from_timestamp(t, clip=10):
     # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen, 
     # ta ut den framen som söks efter och konvertera den till bas64. 
     local_t = t.astimezone(RECORDINGS_TZ) if t.tzinfo is not None else t.replace(tzinfo=RECORDINGS_TZ)
+    recordings_dir = _recordings_dir()
+    recordings_dir_str = str(recordings_dir)
 
-    if not os.path.isdir(RECORDINGS_DIR):
+    if not recordings_dir.is_dir():
         message = (
             f"Ingen matchande video: recordings directory does not exist "
-            f"(dir={RECORDINGS_DIR}, timestamp={local_t.isoformat()})"
+            f"(dir={recordings_dir_str}, timestamp={local_t.isoformat()})"
         )
         print(f"[database] {message}")
         raise FileNotFoundError(message)
 
-    filenames = sorted(os.listdir(RECORDINGS_DIR))
-    for f in filenames:
-        try:
-            s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
-            if s <= local_t < s + timedelta(seconds=clip):
-                p = os.path.join(RECORDINGS_DIR, f)
-                cap = cv2.VideoCapture(p)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int((local_t - s).total_seconds() * cap.get(cv2.CAP_PROP_FPS)))
+    recordings = _available_recordings()
+    session_recordings = _available_session_recordings()
+    all_recordings = recordings + session_recordings
+    filenames = [path.name for _, path, _ in all_recordings]
+    for start, path, duration in all_recordings:
+        effective_duration = duration if duration and duration > 0 else clip
+        if start <= local_t < start + timedelta(seconds=effective_duration):
+            cap = cv2.VideoCapture(str(path))
+            try:
+                fps = cap.get(cv2.CAP_PROP_FPS)
+                if not fps or fps <= 0:
+                    raise RuntimeError("Kunde inte läsa video FPS")
+                frame_index = max(0, int((local_t - start).total_seconds() * fps))
+                cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
                 ok, frame = cap.read()
-                cap.release()
                 if not ok:
                     raise RuntimeError("Kunde inte läsa frame")
 
-                _, buffer = cv2.imencode(".jpg", frame)
+                ok, buffer = cv2.imencode(".jpg", frame)
+                if not ok:
+                    raise RuntimeError("Kunde inte JPEG-enkoda frame")
                 return base64.b64encode(buffer).decode("utf-8")
-        except ValueError:
-            continue
+            finally:
+                cap.release()
 
     sample_files = ", ".join(filenames[:5]) if filenames else "no files found"
     message = (
-        f"Ingen matchande video for timestamp {local_t.isoformat()} in {RECORDINGS_DIR}. "
+        f"Ingen matchande video for timestamp {local_t.isoformat()} in {recordings_dir_str}. "
         f"Checked {len(filenames)} file(s). Sample: {sample_files}"
     )
     print(f"[database] {message}")
@@ -685,7 +818,11 @@ def find_best_event(query):
                 continue
 
             score = cosine_similarity(query_embedding, desc_embedding)
-            if best_score is None or score > best_score:
+            if (
+                best_score is None
+                or score > best_score
+                or (score == best_score and (best_group_id is None or row["group_id"] > best_group_id))
+            ):
                 best_score = score
                 best_group_id = row["group_id"]
                 best_matched_row_id = desc_id
@@ -703,12 +840,38 @@ def find_best_event(query):
 
 
 def seed_test_data():
-    # Reference recording: recordings/1/D2026-02-09-T11-51-00.mp4
-    base_video_time = datetime(2026, 2, 9, 11, 51, 0, tzinfo=RECORDINGS_TZ)
-    event_start = base_video_time + timedelta(seconds=1)
-    event_end = base_video_time + timedelta(seconds=6)
-    snapshot_ts = base_video_time + timedelta(seconds=2)
-    full_frame_ts = base_video_time + timedelta(seconds=3)
+    recordings = _available_recordings()
+    if not recordings:
+        print("[database] seed_test_data skipped: no recordings found")
+        return
+
+    base_video_time, _, duration = recordings[0]
+    duration = duration if duration and duration > 0 else 10.0
+    safe_end_offset = max(0.4, duration - 0.1)
+    event_start_offset = min(0.2, max(0.0, duration * 0.1))
+    event_end_offset = max(event_start_offset + 0.1, min(safe_end_offset, duration * 0.8))
+    snapshot_offset = min(max(event_start_offset + 0.2, duration * 0.4), safe_end_offset)
+    full_frame_offset = min(max(snapshot_offset + 0.2, duration * 0.6), safe_end_offset)
+
+    event_start = base_video_time + timedelta(seconds=event_start_offset)
+    event_end = base_video_time + timedelta(seconds=event_end_offset)
+    snapshot_ts = base_video_time + timedelta(seconds=snapshot_offset)
+    full_frame_ts = base_video_time + timedelta(seconds=full_frame_offset)
+
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT id FROM description_group
+        WHERE timestamp_start = ? AND timestamp_end = ?;
+        """,
+        (_to_iso(event_start), _to_iso(event_end)),
+    )
+    existing_group = cur.fetchone()
+    conn.close()
+    if existing_group is not None:
+        return
 
     snapshot_b64 = None
     try:

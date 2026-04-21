@@ -40,6 +40,7 @@ class Camera:
         broker_port: int,
         analysis_client=None,
         segment_seconds: int = 10,
+        enable_recording: bool = True,
         hot_buffer_seconds: int = 30,
         hot_buffer_fps: int = 5,
         hot_buffer_max_bytes: int = 50 * 1024 * 1024, #TODO increase max bytes if needed
@@ -76,7 +77,8 @@ class Camera:
         self._async_loop_ready = threading.Event()
         self.init_async_loop()
 
-        self.init_recording(ffmpeg, segment_seconds)
+        if enable_recording:
+            self.init_recording(ffmpeg, segment_seconds)
         self.init_buffer()
         self.init_mqtt(broker_host, broker_port)
 
@@ -152,7 +154,7 @@ class Camera:
         selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
         selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
 
-        # Temporary solution for short consolodated, might have to prune short consolodated
+        # Temporary solution for short consolodated, might have to prune short consolidated
         if not selection_1_images and not selection_1_timestamps:
             selection_1_images = [full_frame_b64]
             selection_1_timestamps = [target_start_time]
@@ -194,9 +196,12 @@ class Camera:
                 response_full_frame["description"],
                 selection_1_timestamps,
                 selection_2_timestamps,
+                selection_1_images,
+                selection_2_images,
                 target_start_time,
                 matched_full_frame.timestamp,
                 snapshot_b64,
+                full_frame_b64,
             )
         except Exception as exc:
             print(f"[camera:{self.camera_id}] saving to database failed: {exc}")

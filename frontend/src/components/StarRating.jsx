@@ -15,10 +15,11 @@ export default function StarRating({ value = 0, onChange, groupId, imageType }) 
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          group_id: groupId,
+          id: groupId,
           description_type: imageType,
           feedback: star,
         }),
+
       });
     } catch (err) {
       console.error("Failed to save rating:", err);

@@ -71,7 +71,37 @@ function handleRatingChange(imageType, newRating) {
   const groupId = eventData?.description_group?.id;
 
   return (
-    <div className="App flex flex-col items-center justify-center min-h-screen gap-4">
+    <div className="min-h-screen w-screen flex bg-[#49564F] text-white">
+    {/* Vänster inställningsfält */}
+    <aside className="w-96 min-h-screen bg-[#222] border-r-4 border-[#FFCC00] p-4">
+      <h2 className="text-xl font-bold text-[#FFCC00] mb-4">
+        Inställningar
+      </h2>
+
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1">
+          <span className="text-sm text-gray-300">Person hihi</span>
+          <select className="bg-[#333] border border-[#FFCC00] rounded px-2 py-1">
+            <option>Lisa</option>
+            <option>Cora </option>
+          </select>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input type="checkbox" />
+          <span>Visa metadata</span>
+        </label>
+
+        <button className="bg-[#FFCC00] hover:bg-[#E6AD00] text-black py-2 px-4 rounded">
+          Spara
+        </button>
+      </div>
+    </aside>
+
+        {/* resten */}
+
+<main className="flex-1 relative bg-[#49564F]">
+    <div className="App flex flex-col items-center justify-center min-h-screen gap-4 bg-[#49564F]">
       <button 
         onClick={onAnalysClick}
         type="button" 
@@ -85,7 +115,7 @@ function handleRatingChange(imageType, newRating) {
       <SearchButton id={searchString} onClick={handleSearch} />
       {error ? <p className="text-red-400">Failed to load backend data: {error}</p> : null}
       {loading ? <p className="text-[#FFCC00]">Loading results...</p> : null}
-      <div className="App flex flex-row bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
+      <div className="App flex flex-row bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
                 <div className="App flex flex-col">
                     <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
                           <FullFrameImage searchString={submittedString} eventData={eventData?.full_frame} />
@@ -110,7 +140,7 @@ function handleRatingChange(imageType, newRating) {
 
         </div> 
         
-        <div className="App flex flex-col bg-[#333] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
+        <div className="App flex flex-col bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
         <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens  Uniform</h2>
         
         <ImageCarousel searchString={submittedString} images={eventData?.uniform?.images || []} />
@@ -134,6 +164,9 @@ function handleRatingChange(imageType, newRating) {
           />        </div> 
 
     </div>
+    </main>
+    </div>
+
   );
 }
 

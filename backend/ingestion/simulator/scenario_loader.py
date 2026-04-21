@@ -189,6 +189,21 @@ def _load_jsonl(path: Path) -> List[Dict[str, Any]]:
     return rows
 
 
+def _parse_capture_timestamp(value: Any) -> datetime | None:
+    parsed = _parse_axis_timestamp_strict(value)
+    if parsed is not None:
+        return parsed
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_RECORDING_TZ)
+    return parsed
+
+
 @dataclass(frozen=True)
 class ScenarioEvent:
     offset_ms: int
@@ -211,6 +226,134 @@ class Scenario:
         if not self.events:
             return 0
         return self.events[-1].offset_ms
+
+
+@dataclass(frozen=True)
+class SessionManifest:
+    session_dir: Path
+    camera_id: str
+    created_at: datetime | None
+    capture_start_wallclock: datetime | None
+    video_path: Path
+    events_path: Path
+
+
+def load_session_manifest(session_path: str | Path) -> SessionManifest:
+    session_dir = Path(session_path)
+    if not session_dir.exists():
+        raise FileNotFoundError(f"Session directory not found: {session_dir}")
+    if not session_dir.is_dir():
+        raise ValueError(f"Session path is not a directory: {session_dir}")
+
+    manifest_path = session_dir / "manifest.json"
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Session manifest not found: {manifest_path}")
+
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid session manifest JSON: {manifest_path}") from exc
+
+    if not isinstance(manifest, dict):
+        raise ValueError(f"Session manifest must be a JSON object: {manifest_path}")
+
+    video_name = manifest.get("video")
+    events_name = manifest.get("events")
+    camera_id = str(manifest.get("camera_id") or "")
+    if not video_name or not events_name:
+        raise ValueError("Session manifest must define 'video' and 'events'.")
+    if not camera_id:
+        raise ValueError("Session manifest must define 'camera_id'.")
+
+    video_path = session_dir / str(video_name)
+    events_path = session_dir / str(events_name)
+    if not video_path.exists():
+        raise FileNotFoundError(f"Session video not found: {video_path}")
+    if not events_path.exists():
+        raise FileNotFoundError(f"Session events not found: {events_path}")
+
+    return SessionManifest(
+        session_dir=session_dir,
+        camera_id=camera_id,
+        created_at=_parse_capture_timestamp(manifest.get("created_at")),
+        capture_start_wallclock=_parse_capture_timestamp(manifest.get("capture_start_wallclock")),
+        video_path=video_path,
+        events_path=events_path,
+    )
+
+
+def _load_session_events(
+    events_file: Path,
+    *,
+    capture_start_wallclock: datetime | None,
+) -> List[ScenarioEvent]:
+    rows: List[Dict[str, Any]] = []
+    for line_no, raw_line in enumerate(events_file.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid session JSONL at line {line_no}: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError(f"Session event at line {line_no} is not a JSON object.")
+        rows.append(parsed)
+    if not rows:
+        raise ValueError("Session events file is empty.")
+
+    events: List[ScenarioEvent] = []
+    for index, row in enumerate(rows, start=1):
+        raw_payload = row.get("raw")
+        if not isinstance(raw_payload, dict):
+            raise ValueError(f"Session event {index} is missing a JSON object in 'raw'.")
+
+        try:
+            offset_ms = int(row.get("offset_ms"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Session event {index} is missing a valid integer 'offset_ms'.") from exc
+        if offset_ms < 0:
+            raise ValueError(f"Session event {index} has a negative offset_ms.")
+
+        original_ts = _extract_original_timestamp(raw_payload)
+        if original_ts is None:
+            original_ts = _parse_capture_timestamp(row.get("received_at"))
+        if original_ts is None and capture_start_wallclock is not None:
+            original_ts = capture_start_wallclock + timedelta(milliseconds=offset_ms)
+        if original_ts is None:
+            raise ValueError(
+                f"Session event {index} has no usable timestamp. "
+                "Expected a timestamp in payload, received_at, or capture_start_wallclock in the manifest."
+            )
+
+        events.append(
+            ScenarioEvent(
+                offset_ms=offset_ms,
+                original_timestamp=original_ts,
+                payload=raw_payload,
+            )
+        )
+
+    events.sort(key=lambda event: event.offset_ms)
+    return events
+
+
+def load_scenario_from_session(session_path: str | Path) -> tuple[SessionManifest, Scenario]:
+    manifest = load_session_manifest(session_path)
+    events = _load_session_events(
+        manifest.events_path,
+        capture_start_wallclock=manifest.capture_start_wallclock,
+    )
+    scenario = Scenario(
+        video_path=manifest.video_path,
+        events_path=manifest.events_path,
+        events=events,
+        total_events_loaded=len(events),
+        filtered_events_loaded=len(events),
+        auto_filtered=False,
+        video_window=None,
+    )
+    return manifest, scenario
 
 
 def load_scenario(

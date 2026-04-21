@@ -13,7 +13,12 @@ except ModuleNotFoundError:  # pragma: no cover - optional in thin test envs
 
 from ingestion.simulator.mqtt_replayer import MqttReplayer
 from ingestion.simulator.rtsp_streamer import RtspStreamer
-from ingestion.simulator.scenario_loader import Scenario, load_scenario
+from ingestion.simulator.scenario_loader import (
+    Scenario,
+    load_scenario,
+    load_scenario_from_session,
+    load_session_manifest,
+)
 
 
 @dataclass(frozen=True)
@@ -96,7 +101,8 @@ class SimulatedCamera:
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run a simulated live camera scenario.")
-    parser.add_argument("--video", required=True, help="Path to scenario MP4 video.")
+    parser.add_argument("--session", help="Path to a recorded session directory with manifest.json, events.jsonl and video.")
+    parser.add_argument("--video", help="Path to scenario MP4 video.")
     parser.add_argument("--events", help="Path to scenario JSONL events or raw live MQTT JSONL.")
     parser.add_argument("--camera-id", required=True, help="Camera id used for MQTT topic.")
     parser.add_argument("--broker-host", help="MQTT broker host.")
@@ -132,14 +138,28 @@ def _build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    if args.no_mqtt:
-        scenario = None
+    if args.session:
+        manifest = load_session_manifest(args.session)
+        video_path = str(manifest.video_path)
+        if args.no_mqtt:
+            scenario = None
+        else:
+            if not args.broker_host:
+                parser.error("--broker-host is required unless --no-mqtt is used.")
+            _, scenario = load_scenario_from_session(args.session)
     else:
-        if not args.events:
-            parser.error("--events is required unless --no-mqtt is used.")
-        if not args.broker_host:
-            parser.error("--broker-host is required unless --no-mqtt is used.")
-        scenario = load_scenario(args.video, args.events, auto_filter_events=args.auto_filter_events)
+        if not args.video:
+            parser.error("--video is required unless --session is used.")
+        video_path = args.video
+        if args.no_mqtt:
+            scenario = None
+        else:
+            if not args.events:
+                parser.error("--events is required unless --no-mqtt is used.")
+            if not args.broker_host:
+                parser.error("--broker-host is required unless --no-mqtt is used.")
+            scenario = load_scenario(args.video, args.events, auto_filter_events=args.auto_filter_events)
+    if scenario is not None:
         if scenario.video_window is not None:
             print(
                 "Scenario prepared:",
@@ -157,7 +177,7 @@ def main() -> None:
             )
 
     simulator = SimulatedCamera(
-        video_path=args.video,
+        video_path=video_path,
         scenario=scenario,
         camera_id=args.camera_id,
         broker_host=args.broker_host,

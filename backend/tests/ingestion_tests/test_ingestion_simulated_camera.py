@@ -45,7 +45,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from ingestion.simulator.mqtt_replayer import MqttReplayer
-from ingestion.simulator.scenario_loader import load_scenario
+from ingestion.simulator.scenario_loader import load_scenario, load_scenario_from_session
 from ingestion.simulator.simulated_camera import SimulatedCamera
 from ingestion.simulator.timestamp_rewriter import rewrite_payload_timestamps
 
@@ -193,6 +193,60 @@ class ScenarioLoaderTests(unittest.TestCase):
         self.assertEqual(scenario.filtered_events_loaded, 2)
         self.assertTrue(scenario.auto_filtered)
         self.assertIsNotNone(scenario.video_window)
+
+    def test_load_scenario_from_session_uses_offset_ms_as_timeline(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            session_dir = Path(temp_dir) / "session_20260420_143456"
+            session_dir.mkdir()
+            (session_dir / "capture.mp4").write_bytes(b"fake-mp4")
+            (session_dir / "manifest.json").write_text(
+                json.dumps(
+                    {
+                        "camera_id": "1",
+                        "created_at": "2026-04-20T12:34:56Z",
+                        "capture_start_wallclock": "2026-04-20T12:34:56Z",
+                        "video": "capture.mp4",
+                        "events": "events.jsonl",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (session_dir / "events.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "offset_ms": 1200,
+                                "received_at": "2026-04-20T12:34:57.200Z",
+                                "raw": {"id": "event-a"},
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "offset_ms": 3400,
+                                "received_at": "2026-04-20T12:34:59.400Z",
+                                "raw": {"id": "event-b"},
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            manifest, scenario = load_scenario_from_session(session_dir)
+
+        self.assertEqual(manifest.camera_id, "1")
+        self.assertEqual(manifest.video_path.name, "capture.mp4")
+        self.assertEqual([event.offset_ms for event in scenario.events], [1200, 3400])
+        self.assertEqual([event.payload["id"] for event in scenario.events], ["event-a", "event-b"])
+        self.assertEqual(
+            [event.original_timestamp for event in scenario.events],
+            [
+                datetime(2026, 4, 20, 12, 34, 57, 200000, tzinfo=timezone.utc),
+                datetime(2026, 4, 20, 12, 34, 59, 400000, tzinfo=timezone.utc),
+            ],
+        )
 
 
 class TimestampRewriterTests(unittest.TestCase):

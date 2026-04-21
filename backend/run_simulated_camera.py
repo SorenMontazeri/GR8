@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
 
 # Starta simulerad kamera från GR8/backend:
-# source .venv/bin/activate
+# source venv/bin/activate
 # python run_simulated_camera.py \
-#   --video recordings/1/D2026-03-31-T14-04-45.mp4 \
+#   --session database/recordings/1/session_20260420_143456 \
+#   --camera-id 1 \
+#   --loop
+#
+# Eller i äldre filbaserat läge:
+# python run_simulated_camera.py \
+#   --video database/recordings/1/D2026-03-31-T14-04-45.mp4 \
 #   --events replay_out/live_events.jsonl \
 #   --camera-id 1 \
 #   --auto-filter-events \
@@ -13,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -20,6 +27,8 @@ import time
 from pathlib import Path
 
 import imageio_ffmpeg
+
+from ingestion.simulator.scenario_loader import load_session_manifest
 
 
 def _stream_process_output(process: subprocess.Popen[str], prefix: str) -> threading.Thread:
@@ -69,6 +78,21 @@ def _wait_for_rtsp(rtsp_url: str, timeout_seconds: float = 20.0) -> None:
     raise RuntimeError(last_error)
 
 
+def _wait_for_tcp_listener(host: str, port: int, timeout_seconds: float = 10.0) -> None:
+    deadline = time.time() + timeout_seconds
+    last_error = f"{host}:{port} did not open in time."
+
+    while time.time() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=1.0):
+                return
+        except OSError as exc:
+            last_error = str(exc)
+            time.sleep(0.2)
+
+    raise RuntimeError(last_error)
+
+
 def _terminate_process(process: subprocess.Popen[str] | None, name: str) -> None:
     if process is None:
         return
@@ -87,7 +111,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Start a simulated camera source stack (MediaMTX + Mosquitto + simulator) without ingestion."
     )
-    parser.add_argument("--video", required=True, help="Path to scenario MP4 video.")
+    parser.add_argument("--session", help="Path to a recorded session directory with manifest.json, events.jsonl and video.")
+    parser.add_argument(
+        "--latest-session",
+        action="store_true",
+        help="Use the newest recorded session under backend/database/recordings/<camera_id>/.",
+    )
+    parser.add_argument("--video", help="Path to scenario MP4 video.")
     parser.add_argument("--events", help="Path to scenario JSONL events.")
     parser.add_argument("--camera-id", default="1", help="Camera id for RTSP and MQTT topic.")
     parser.add_argument("--broker-host", default="127.0.0.1", help="MQTT broker host.")
@@ -110,6 +140,22 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _find_latest_session(backend_dir: Path, camera_id: str) -> Path:
+    sessions_root = backend_dir / "database" / "recordings" / str(camera_id)
+    if not sessions_root.exists():
+        raise FileNotFoundError(f"No recordings directory found for camera_id={camera_id}: {sessions_root}")
+
+    session_dirs = [
+        path
+        for path in sessions_root.iterdir()
+        if path.is_dir() and path.name.startswith("session_") and (path / "manifest.json").exists()
+    ]
+    if not session_dirs:
+        raise FileNotFoundError(f"No session directories found for camera_id={camera_id} in {sessions_root}")
+
+    return max(session_dirs, key=lambda path: path.name)
+
+
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
@@ -124,7 +170,17 @@ def main() -> int:
         parser.error("mediamtx is not installed or not in PATH.")
     if not args.skip_mosquitto and mosquitto_bin is None:
         parser.error("mosquitto is not installed or not in PATH.")
-    if not args.no_mqtt and not args.events:
+    selected_session = args.session
+    if args.latest_session:
+        if args.session:
+            parser.error("Use either --session or --latest-session, not both.")
+        selected_session = str(_find_latest_session(backend_dir, str(args.camera_id)))
+
+    if not selected_session and not args.video:
+        parser.error("Either --session, --latest-session, or --video is required.")
+    if selected_session and args.video:
+        parser.error("Use a session mode or --video, not both.")
+    if not args.no_mqtt and not selected_session and not args.events:
         parser.error("--events is required unless --no-mqtt is used.")
 
     rtsp_url = f"rtsp://{args.rtsp_host}:{args.rtsp_port}/{args.camera_id}"
@@ -141,7 +197,7 @@ def main() -> int:
                 prefix="mediamtx",
                 cwd=backend_dir,
             )
-            time.sleep(1.0)
+            _wait_for_tcp_listener(args.rtsp_host, args.rtsp_port)
 
         if not args.skip_mosquitto:
             mosquitto_process = _start_process(
@@ -149,14 +205,20 @@ def main() -> int:
                 prefix="mosquitto",
                 cwd=backend_dir,
             )
-            time.sleep(1.0)
+            _wait_for_tcp_listener(args.broker_host, args.broker_port)
+
+        if selected_session:
+            manifest = load_session_manifest(selected_session)
+            camera_id = manifest.camera_id
+            if str(args.camera_id) != camera_id:
+                parser.error(
+                    f"--camera-id {args.camera_id} does not match session camera_id {camera_id}."
+                )
 
         simulator_cmd = [
             python_executable,
             "-m",
             "ingestion.simulator.simulated_camera",
-            "--video",
-            args.video,
             "--camera-id",
             str(args.camera_id),
             "--rtsp-publish-url",
@@ -166,28 +228,34 @@ def main() -> int:
             "--ffmpeg-path",
             ffmpeg_path,
         ]
+        if selected_session:
+            simulator_cmd.extend(["--session", selected_session])
+        else:
+            simulator_cmd.extend(["--video", args.video])
         if args.loop:
             simulator_cmd.append("--loop")
         if args.no_mqtt:
             simulator_cmd.append("--no-mqtt")
         else:
+            if not selected_session:
+                simulator_cmd.extend(["--events", args.events])
+                if args.auto_filter_events:
+                    simulator_cmd.append("--auto-filter-events")
             simulator_cmd.extend(
                 [
-                    "--events",
-                    args.events,
-                    "--auto-filter-events" if args.auto_filter_events else "",
                     "--broker-host",
                     args.broker_host,
                     "--broker-port",
                     str(args.broker_port),
                 ]
             )
-            simulator_cmd = [part for part in simulator_cmd if part]
 
         simulator_process = _start_process(simulator_cmd, prefix="simulator", cwd=backend_dir)
 
         _wait_for_rtsp(rtsp_url)
         print("[camera-runner] simulated camera is live")
+        if selected_session:
+            print(f"[camera-runner] session: {selected_session}")
         print(f"[camera-runner] RTSP read URL: {rtsp_url}")
         if not args.no_mqtt:
             print(f"[camera-runner] MQTT broker: {args.broker_host}:{args.broker_port}")
@@ -198,7 +266,9 @@ def main() -> int:
         while True:
             time.sleep(60)
             if simulator_process.poll() is not None:
-                raise RuntimeError("simulator process exited unexpectedly")
+                raise RuntimeError(
+                    f"simulator process exited unexpectedly with code {simulator_process.returncode}"
+                )
 
     except KeyboardInterrupt:
         print("[camera-runner] stopping...")

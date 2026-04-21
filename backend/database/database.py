@@ -52,6 +52,19 @@ class FeedbackRequest(BaseModel):
     feedback: int  # 1 or -1
 
 
+class SettingsRequest(BaseModel):
+    min_event_duration: int = 0
+    prompt_fullframe_snapshot: str = ""
+    prompt_uniform_movement: str = ""
+    fullframe_time: int = -1
+    uniform_samplerate: int = 1
+    uniform_samplerate_value: int = 0
+    movement_tracker_type: int = 1
+    movement_tracker_type_threshhold: int = 0
+    movement_samplerate: int = 1
+    movement_samplerate_value: int = 0
+
+
 @app.get("/api/event/{query}")
 def get_events(query: str):
     best_event = find_best_event(query)
@@ -190,6 +203,19 @@ def post_feedback(payload: FeedbackRequest):
     update_feedback(payload.description_type, payload.id, payload.feedback)
 
 
+@app.get("/api/settings")
+def get_settings():
+    return load_settings()
+
+
+@app.post("/api/settings")
+def post_settings(payload: SettingsRequest):
+    settings = payload.model_dump()
+    validate_settings(settings)
+    save_settings(settings)
+    return {"settings": settings}
+
+
 def update_feedback(description_type: str, group_id: int, feedback_value: int) -> None:
     target = FEEDBACK_TARGETS.get(description_type.strip().lower())
     if target is None:
@@ -297,6 +323,12 @@ def create_database() -> None:
             FOREIGN KEY (full_frame_description_id)
                 REFERENCES full_frame_description(id)
         );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            settings_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
     )
     try:
@@ -306,6 +338,63 @@ def create_database() -> None:
             raise
     conn.commit()
     conn.close()
+
+
+def default_settings() -> dict:
+    return SettingsRequest().model_dump()
+
+
+def validate_settings(settings: dict) -> None:
+    if settings["min_event_duration"] < 0:
+        raise HTTPException(status_code=400, detail="min_event_duration must be >= 0")
+    if settings["fullframe_time"] not in {-1, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}:
+        raise HTTPException(status_code=400, detail="fullframe_time must be -1 or 0-100 in steps of 10")
+    if settings["uniform_samplerate"] not in {1, 2, 3}:
+        raise HTTPException(status_code=400, detail="uniform_samplerate must be 1, 2, or 3")
+    if settings["movement_samplerate"] not in {1, 2, 3}:
+        raise HTTPException(status_code=400, detail="movement_samplerate must be 1, 2, or 3")
+    if settings["movement_tracker_type"] not in {1, 2}:
+        raise HTTPException(status_code=400, detail="movement_tracker_type must be 1 or 2")
+    if settings["uniform_samplerate_value"] < 0:
+        raise HTTPException(status_code=400, detail="uniform_samplerate_value must be >= 0")
+    if settings["movement_samplerate_value"] < 0:
+        raise HTTPException(status_code=400, detail="movement_samplerate_value must be >= 0")
+    if settings["movement_tracker_type_threshhold"] < 0:
+        raise HTTPException(status_code=400, detail="movement_tracker_type_threshhold must be >= 0")
+
+
+def save_settings(settings: dict) -> None:
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO app_settings (id, settings_json, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            settings_json = excluded.settings_json,
+            updated_at = excluded.updated_at;
+        """,
+        (json.dumps(settings), datetime.now(RECORDINGS_TZ).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_settings() -> dict:
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT settings_json FROM app_settings WHERE id = 1;")
+    row = cur.fetchone()
+    conn.close()
+
+    if row is None:
+        return default_settings()
+
+    settings = default_settings()
+    settings.update(json.loads(row[0]))
+    return settings
 
 
 def _to_iso(ts: datetime | str) -> str:

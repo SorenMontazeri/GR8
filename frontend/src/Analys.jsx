@@ -1,4 +1,4 @@
-import React, { useState } from "react"; // <--- DENNA MÅSTE FINNAS
+import React, { useState, useEffect } from "react"; 
 
 function Analys({ goHome }) {
   const [stats, setStats] = useState({
@@ -7,6 +7,40 @@ function Analys({ goHome }) {
     urval1: 7, // 0
     urval2: 18 // 0
   });
+
+  // Function to clear analysis
+  const handleClear = async () => {
+    try {
+      const response = await fetch('-------API_URL------/reset', {
+        method: 'PATCH', // Eller 'PUT' beroende på API
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          snapshot: 0,
+          fullframe: 0,
+          urval1: 0,
+          urval2: 0
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Could not reset results in database');
+      }
+      setStats({
+        snapshot: 0,
+        fullframe: 0,
+        urval1: 0,
+        urval2: 0
+      });
+
+      console.log("Analysis is cleared!");
+
+    } catch (error) {
+      console.error("Error occured:", error);
+      alert("Could not reset results in database");
+    }
+  };
 
   // kommentera ut när databas är inkopplad
  
@@ -79,6 +113,12 @@ function Analys({ goHome }) {
           </div>
         </div>
       </div>
+      <button
+      onClick={handleClear}
+      className="mt-8 bg-[#FFCC00] hover:bg-[#E6AD00] text-black rounded px-4 py-2"
+    >
+      Clear analysis
+    </button>
     </div>
   );
 }

@@ -7,6 +7,8 @@ import Seq2 from "./components/Sequence2.jsx";
 import Snapshot from "./components/Snapshot.jsx";
 import ImageCarousel from "./Features/ImageCarousel";
 import StarRating from "./components/StarRating";
+import SettingsPanel from "./components/Settings.jsx";
+
 function Home({ onAnalysClick }) {
   const [searchString, setString] = useState("");
   const [submittedString, setSubmittedString] = useState(null);
@@ -71,32 +73,9 @@ function handleRatingChange(imageType, newRating) {
   const groupId = eventData?.description_group?.id;
 
   return (
+    
     <div className="min-h-screen w-screen flex bg-[#49564F] text-white">
-    {/* Vänster inställningsfält */}
-    <aside className="w-96 min-h-screen bg-[#222] border-r-4 border-[#FFCC00] p-4">
-      <h2 className="text-xl font-bold text-[#FFCC00] mb-4">
-        Inställningar
-      </h2>
-
-      <div className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1">
-          <span className="text-sm text-gray-300">Person hihi</span>
-          <select className="bg-[#333] border border-[#FFCC00] rounded px-2 py-1">
-            <option>Lisa</option>
-            <option>Cora </option>
-          </select>
-        </label>
-
-        <label className="flex items-center gap-2">
-          <input type="checkbox" />
-          <span>Visa metadata</span>
-        </label>
-
-        <button className="bg-[#FFCC00] hover:bg-[#E6AD00] text-black py-2 px-4 rounded">
-          Spara
-        </button>
-      </div>
-    </aside>
+    <SettingsPanel />
 
         {/* resten */}
 

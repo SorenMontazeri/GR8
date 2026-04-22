@@ -148,50 +148,66 @@ def get_events(query: str):
             "snapshot_description_id": row["dg_snapshot_id"],
             "full_frame_description_id": row["dg_full_frame_id"],
         },
-        "uniform": {
-            "id": row["u_id"],
-            "timestamp_start": row["u_timestamp_start"],
-            "timestamp_end": row["u_timestamp_end"],
-            "created_at": row["u_created_at"],
-            "timestamps_json": uniform_timestamps,
-            "images": uniform_images,
-            "llm_description": row["u_llm_description"],
-            "description_embedding": _parse_json(row["u_description_embedding"]),
-            "number_of_tokens": row["u_number_of_tokens"],
-            "feedback": row["u_feedback"],
-        } if row["u_id"] is not None else None,
-        "varied": {
-            "id": row["v_id"],
-            "timestamp_start": row["v_timestamp_start"],
-            "timestamp_end": row["v_timestamp_end"],
-            "created_at": row["v_created_at"],
-            "timestamps_json": varied_timestamps,
-            "images": varied_images,
-            "llm_description": row["v_llm_description"],
-            "description_embedding": _parse_json(row["v_description_embedding"]),
-            "number_of_tokens": row["v_number_of_tokens"],
-            "feedback": row["v_feedback"],
-        } if row["v_id"] is not None else None,
-        "snapshot": {
-            "id": row["s_id"],
-            "timestamp": row["s_timestamp"],
-            "image": snapshot_image,
-            "created_at": row["s_created_at"],
-            "llm_description": row["s_llm_description"],
-            "description_embedding": _parse_json(row["s_description_embedding"]),
-            "number_of_tokens": row["s_number_of_tokens"],
-            "feedback": row["s_feedback"],
-        } if row["s_id"] is not None else None,
-        "full_frame": {
-            "id": row["f_id"],
-            "timestamp": row["f_timestamp"],
-            "image": full_frame_image,
-            "created_at": row["f_created_at"],
-            "llm_description": row["f_llm_description"],
-            "description_embedding": _parse_json(row["f_description_embedding"]),
-            "number_of_tokens": row["f_number_of_tokens"],
-            "feedback": row["f_feedback"],
-        } if row["f_id"] is not None else None,
+        "uniform": (
+            {
+                "id": row["u_id"],
+                "timestamp_start": row["u_timestamp_start"],
+                "timestamp_end": row["u_timestamp_end"],
+                "created_at": row["u_created_at"],
+                "timestamps_json": uniform_timestamps,
+                "images": uniform_images,
+                "llm_description": row["u_llm_description"],
+                "description_embedding": _parse_json(row["u_description_embedding"]),
+                "number_of_tokens": row["u_number_of_tokens"],
+                "feedback": row["u_feedback"],
+            }
+            if row["u_id"] is not None
+            else None
+        ),
+        "varied": (
+            {
+                "id": row["v_id"],
+                "timestamp_start": row["v_timestamp_start"],
+                "timestamp_end": row["v_timestamp_end"],
+                "created_at": row["v_created_at"],
+                "timestamps_json": varied_timestamps,
+                "images": varied_images,
+                "llm_description": row["v_llm_description"],
+                "description_embedding": _parse_json(row["v_description_embedding"]),
+                "number_of_tokens": row["v_number_of_tokens"],
+                "feedback": row["v_feedback"],
+            }
+            if row["v_id"] is not None
+            else None
+        ),
+        "snapshot": (
+            {
+                "id": row["s_id"],
+                "timestamp": row["s_timestamp"],
+                "image": snapshot_image,
+                "created_at": row["s_created_at"],
+                "llm_description": row["s_llm_description"],
+                "description_embedding": _parse_json(row["s_description_embedding"]),
+                "number_of_tokens": row["s_number_of_tokens"],
+                "feedback": row["s_feedback"],
+            }
+            if row["s_id"] is not None
+            else None
+        ),
+        "full_frame": (
+            {
+                "id": row["f_id"],
+                "timestamp": row["f_timestamp"],
+                "image": full_frame_image,
+                "created_at": row["f_created_at"],
+                "llm_description": row["f_llm_description"],
+                "description_embedding": _parse_json(row["f_description_embedding"]),
+                "number_of_tokens": row["f_number_of_tokens"],
+                "feedback": row["f_feedback"],
+            }
+            if row["f_id"] is not None
+            else None
+        ),
     }
 
 
@@ -699,15 +715,12 @@ def save_description_bundle(
 
 
 def image_from_timestamp(t, clip=10):
-    # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen, 
-    # ta ut den framen som söks efter och konvertera den till bas64. 
+    # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen,
+    # ta ut den framen som söks efter och konvertera den till bas64.
     local_t = t.astimezone(RECORDINGS_TZ) if t.tzinfo is not None else t.replace(tzinfo=RECORDINGS_TZ)
 
     if not os.path.isdir(RECORDINGS_DIR):
-        message = (
-            f"Ingen matchande video: recordings directory does not exist "
-            f"(dir={RECORDINGS_DIR}, timestamp={local_t.isoformat()})"
-        )
+        message = f"Ingen matchande video: recordings directory does not exist " f"(dir={RECORDINGS_DIR}, timestamp={local_t.isoformat()})"
         print(f"[database] {message}")
         raise FileNotFoundError(message)
 
@@ -730,18 +743,18 @@ def image_from_timestamp(t, clip=10):
             continue
 
     sample_files = ", ".join(filenames[:5]) if filenames else "no files found"
-    message = (
-        f"Ingen matchande video for timestamp {local_t.isoformat()} in {RECORDINGS_DIR}. "
-        f"Checked {len(filenames)} file(s). Sample: {sample_files}"
-    )
+    message = f"Ingen matchande video for timestamp {local_t.isoformat()} in {RECORDINGS_DIR}. " f"Checked {len(filenames)} file(s). Sample: {sample_files}"
     print(f"[database] {message}")
     raise FileNotFoundError(message)
+
 
 def embed(text: str):
     return model.encode(text, normalize_embeddings=True).tolist()
 
+
 def cosine_similarity(a, b):
     return sum(x * y for x, y in zip(a, b))
+
 
 def _parse_json(value):
     if value is None:
@@ -870,5 +883,5 @@ def seed_test_data():
 
 
 if __name__ == "__main__":
-    #seed_test_data()
+    # seed_test_data()
     uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

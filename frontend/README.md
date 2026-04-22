@@ -45,3 +45,20 @@ node -v # Should print "v24.14.0".
 
 # Verify npm version:
 npm -v # Should print "11.9.0".
+
+# TESTING
+Test with Vitest: 
+Run with the scripts in frontend/package.json
+"test": "vitest run" 
+
+# Installations: 
+cd frontend
+npm install -D vitest jsdom @testing-library/react @testing-library/jest-dom @testing-library/user-event
+# Run tests: 
+cd frontend
+npm test
+
+# run in "watch mode"
+npm run test:watch
+
+

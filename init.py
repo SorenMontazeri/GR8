@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT / "backend"
 FRONTEND_DIR = ROOT / "frontend"
-VENV_DIR = BACKEND_DIR / "venv"
+VENV_DIR = BACKEND_DIR / ".venv"
 MODEL_DIR = BACKEND_DIR / "database" / "models" / "all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 

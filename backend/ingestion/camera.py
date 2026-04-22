@@ -5,10 +5,11 @@ from pathlib import Path
 import sys
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 import os
 import asyncio
+import numpy as np
 
 try:
     from dotenv import load_dotenv
@@ -24,7 +25,7 @@ import paho.mqtt.client as mqtt
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from database.database import save_analysis
+from database.database import save_description_bundle
 from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
@@ -69,6 +70,12 @@ class Camera:
         self._buffer_thread: threading.Thread | None = None
         self.analysis_client = analysis_client
 
+        # Fix for asyncio
+        self._async_loop = asyncio.new_event_loop()
+        self._async_thread: threading.Thread | None = None
+        self._async_loop_ready = threading.Event()
+        self.init_async_loop()
+
         self.init_recording(ffmpeg, segment_seconds)
         self.init_buffer()
         self.init_mqtt(broker_host, broker_port)
@@ -84,6 +91,36 @@ class Camera:
         self.mqtt_client.subscribe(f"camera/{self.camera_id}")
         self.mqtt_client.loop_start()
 
+    def init_async_loop(self) -> None:
+        self._async_thread = threading.Thread(
+            target=self._async_loop_thread_main,
+            name=f"camera-{self.camera_id}-async-loop",
+            daemon=True,
+        )
+        self._async_thread.start()
+
+        if not self._async_loop_ready.wait(timeout=5.0):
+            raise RuntimeError(f"[camera:{self.camera_id}] async loop failed to start")
+
+    def _async_loop_thread_main(self) -> None:
+        asyncio.set_event_loop(self._async_loop)
+        self._async_loop_ready.set()
+        self._async_loop.run_forever()
+
+    async def _run_analysis(
+        self,
+        snapshot_b64: str,
+        full_frame_b64: str,
+        selection_1_images: list[str],
+        selection_2_images: list[str],
+    ) -> tuple[Any, Any, Any, Any]:
+        return await asyncio.gather(
+            self.analysis_client.query_description_open([snapshot_b64]),
+            self.analysis_client.query_description_open([full_frame_b64]),
+            self.analysis_client.query_description_open(selection_1_images),
+            self.analysis_client.query_description_open(selection_2_images),
+        )
+
     def on_message(self, client, userdata, msg) -> None:
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
@@ -97,32 +134,73 @@ class Camera:
                 
                 
         # Get necessary info
-        target_timestamp = self._extract_event_timestamp(data)
+        target_start_time = self._extract_event_timestamp(data)
+        target_end_time = self._extract_event_end_time(data)
         image = data.get("image")
         snapshot_b64 = image.get("data") if isinstance(image, dict) else None
+        if snapshot_b64 is None:
+            print(f"[camera:{self.camera_id}] missing mqtt snapshot")
+            return
 
 
-        matched_full_frame = self.get_hot_buffer_frame_at(target_timestamp)
+        matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
         if matched_full_frame is None:
-                print(f"[camera:{self.camera_id}][mqtt] no matching frame in hot buffer")
+                print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
                 return
         full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
-        print("here")
 
-        async def run():
-            print("here")
-            response_snapshot, response_full_frame = await asyncio.gather(
-                self.analysis_client.query_description_open([snapshot_b64]),
-                self.analysis_client.query_description_open([full_frame_b64]),
-            )
+        selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
+        selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
 
-            print(response_snapshot["description"])
-            print(response_full_frame["description"])
+        # Temporary solution for short consolodated, might have to prune short consolodated
+        if not selection_1_images and not selection_1_timestamps:
+            selection_1_images = [full_frame_b64]
+            selection_1_timestamps = [target_start_time]
+
+        if not selection_2_images and not selection_2_timestamps:
+            selection_2_images = [full_frame_b64]
+            selection_2_timestamps = [target_start_time]
+
 
         try:
-            asyncio.run(run())
+            future = asyncio.run_coroutine_threadsafe(
+                self._run_analysis(
+                    snapshot_b64=snapshot_b64,
+                    full_frame_b64=full_frame_b64,
+                    selection_1_images=selection_1_images,
+                    selection_2_images=selection_2_images,
+                ),
+                self._async_loop,
+            )
+            response_snapshot, response_full_frame, response_selection_1, response_selection_2 = future.result(timeout=60)
+
         except Exception as exc:
-            print(f"[camera:{self.camera_id}][mqtt] analysis failed: {exc}")
+            print(f"[camera:{self.camera_id}] analysis failed: {exc}")
+            return
+        
+        print(response_snapshot)
+        print(response_full_frame)
+        print(response_selection_1)
+        print(response_selection_2)
+
+        try:
+            save_description_bundle(
+                target_start_time,
+                target_end_time,
+                datetime.now(timezone.utc),
+                response_selection_1["description"],
+                response_selection_2["description"],
+                response_snapshot["description"],
+                response_full_frame["description"],
+                selection_1_timestamps,
+                selection_2_timestamps,
+                target_start_time,
+                matched_full_frame.timestamp,
+                snapshot_b64,
+            )
+        except Exception as exc:
+            print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
+
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")
@@ -134,6 +212,19 @@ class Camera:
                 return parsed.astimezone(timezone.utc)
             except ValueError:
                 print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
+
+        return datetime.now(timezone.utc)
+    
+    def _extract_event_end_time(self, payload: Dict[str, Any]) -> datetime:
+        end_time = payload.get("end_time")
+        if isinstance(end_time, str) and end_time.strip():
+            try:
+                parsed = datetime.fromisoformat(end_time.strip().replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(timezone.utc)
+            except ValueError:
+                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {end_time}")
 
         return datetime.now(timezone.utc)
 
@@ -234,6 +325,85 @@ class Camera:
             "frame_found": frame is not None,
             "mqtt_found": mqtt_event is not None,
         }
+
+    def frame_selection_1(self, start_time: datetime, end_time: datetime) -> tuple[list[str], list[datetime]]:
+        if end_time < start_time:
+            return [], []
+
+        def encode_frame(frame: BufferedFrame) -> str:
+            return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
+
+        if self.frame_buffer is None:
+            return [], []
+
+        duration = (end_time - start_time).total_seconds()
+        frame_count = 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3)))
+
+        if frame_count <= 0:
+            return [], []
+
+        selected_frames: list[str] = []
+        selected_timestamps: list[datetime] = []
+        seen: set[bytes] = set()
+        step = timedelta(0) if frame_count == 1 else (end_time - start_time) / (frame_count - 1)
+
+        for i in range(frame_count):
+            frame = self.get_hot_buffer_frame_at(start_time + step * i)
+            if frame is None or frame.timestamp < start_time or frame.timestamp > end_time:
+                continue
+            if frame.jpeg_bytes in seen:
+                continue
+            seen.add(frame.jpeg_bytes)
+            selected_frames.append(encode_frame(frame))
+            selected_timestamps.append(frame.timestamp)
+
+        return selected_frames, selected_timestamps
+    
+    def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
+        
+
+        if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
+            return [], []
+
+        def thumbnail(frame: BufferedFrame):
+            image = cv2.imdecode(np.frombuffer(frame.jpeg_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+            resized_image = cv2.resize(image, (max(1, frame.width // 8), max(1, frame.height // 8)), interpolation=cv2.INTER_AREA)
+            return cv2.GaussianBlur(resized_image, (3, 3), 0)
+
+        def changed_pixel_ratio(left, right) -> float:
+            pixel_threshold = 12
+            diff = cv2.absdiff(left, right)
+            return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
+
+        def encode_frame(frame: BufferedFrame) -> str:
+            return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
+
+        if self.frame_buffer is None:
+            return [], []
+
+        with self.frame_buffer._lock:
+            buffer_frames = [
+                frame for frame in self.frame_buffer._frames if start_time <= frame.timestamp <= end_time
+            ]
+
+        if not buffer_frames:
+            return [], []
+        
+
+        selected_frames = [encode_frame(buffer_frames[0])]
+        selected_timestamps = [buffer_frames[0].timestamp]
+        current_frame = buffer_frames[0]
+        
+        for next_frame in buffer_frames[1:]:
+            change_percent = changed_pixel_ratio(thumbnail(current_frame), thumbnail(next_frame))
+            if change_percent > max_change_percent and next_frame.timestamp < current_frame.timestamp + timedelta(seconds=max_interval_seconds):
+                continue
+
+            selected_frames.append(encode_frame(next_frame))
+            selected_timestamps.append(next_frame.timestamp)
+            current_frame = next_frame
+
+        return selected_frames, selected_timestamps
 
     def hot_buffer_stats(self) -> Dict[str, int]:
         if self.frame_buffer is None:

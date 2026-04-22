@@ -5,9 +5,9 @@ export default function SearchButton({ id, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="px-4 py-2 rounded bg-black text-white"
+      className="px-4 py-2 rounded bg-[#FFCC00] text-black border-none hover:bg-[#FFB300] focus:outline-none focus:ring-2 focus:ring-[#FFCC00] focus:ring-offset-2"
     >
-      Search
+      Sök
     </button>
   );
 }

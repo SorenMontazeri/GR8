@@ -5,6 +5,8 @@ from pydantic import BaseModel
 import base64
 import csv
 import json
+import os
+import shutil
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 import base64
 import json
 import os
+import shutil
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
@@ -198,6 +199,19 @@ def post_feedback(payload: FeedbackRequest):
     update_feedback(payload.description_type, payload.id, payload.feedback)
 
 
+# Support both legacy and simplified reset routes.
+@app.patch("/api/admin/reset")
+@app.post("/api/admin/reset")
+def reset_storage():
+    deleted_database_file = clear_database_file()
+    deleted_recordings = clear_recordings_directory()
+    return {
+        "status": "ok",
+        "deleted_database_file": deleted_database_file,
+        "deleted_recordings": deleted_recordings,
+    }
+
+
 def update_feedback(description_type: str, group_id: int, feedback_value: int) -> None:
     try:
         _validate_feedback_range(feedback_value)
@@ -337,6 +351,32 @@ def create_database() -> None:
                 raise
     conn.commit()
     conn.close()
+
+
+def clear_database_file() -> bool:
+    db_path = Path(DB_PATH)
+    if not db_path.exists():
+        return False
+    db_path.unlink()
+    return True
+
+
+def clear_recordings_directory() -> int:
+    recordings_path = Path(RECORDINGS_DIR)
+    if not recordings_path.exists() or not recordings_path.is_dir():
+        return 0
+
+    deleted_file_count = 0
+    for child in recordings_path.iterdir():
+        if child.is_file() or child.is_symlink():
+            child.unlink()
+            deleted_file_count += 1
+            continue
+        if child.is_dir():
+            deleted_file_count += sum(1 for path in child.rglob("*") if path.is_file() or path.is_symlink())
+            shutil.rmtree(child)
+
+    return deleted_file_count
 
 
 def _to_iso(ts: datetime | str) -> str:

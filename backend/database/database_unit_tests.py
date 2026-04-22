@@ -269,6 +269,67 @@ class DatabaseUnitTests(unittest.TestCase):
             self.assertEqual(high_ctx.exception.status_code, 400)
             self.assertIn("between 0 and 5", high_ctx.exception.detail)
 
+    def test_clear_database_file_deletes_file_when_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
+            created_at = datetime(2026, 3, 2, 10, 0, 11)
+            self.db_module.save_analysis(created_at, "this row should be deleted")
+
+            deleted = self.db_module.clear_database_file()
+
+            self.assertTrue(deleted)
+            self.assertFalse(self.db_module.DB_PATH.exists())
+
+            next_id = self.db_module.save_analysis(created_at, "new row after file reset")
+            self.assertEqual(next_id, 1)
+
+    def test_clear_database_file_returns_false_when_file_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
+            deleted = self.db_module.clear_database_file()
+            self.assertFalse(deleted)
+
+    def test_clear_recordings_directory_deletes_files_and_subfolders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            recordings_dir = Path(tmp) / "recordings" / "1"
+            recordings_dir.mkdir(parents=True)
+            (recordings_dir / "a.mp4").write_bytes(b"a")
+            (recordings_dir / "b.mp4").write_bytes(b"b")
+            nested = recordings_dir / "nested"
+            nested.mkdir()
+            (nested / "c.mp4").write_bytes(b"c")
+
+            with patch.object(self.db_module, "RECORDINGS_DIR", str(recordings_dir)):
+                deleted_count = self.db_module.clear_recordings_directory()
+
+            self.assertEqual(deleted_count, 3)
+            self.assertTrue(recordings_dir.exists())
+            self.assertEqual(list(recordings_dir.iterdir()), [])
+
+    def test_clear_recordings_directory_returns_zero_when_directory_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_dir = Path(tmp) / "recordings" / "1"
+            with patch.object(self.db_module, "RECORDINGS_DIR", str(missing_dir)):
+                deleted_count = self.db_module.clear_recordings_directory()
+            self.assertEqual(deleted_count, 0)
+
+    def test_reset_storage_returns_deletion_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
+            recordings_dir = Path(tmp) / "recordings" / "1"
+            recordings_dir.mkdir(parents=True)
+            (recordings_dir / "clip.mp4").write_bytes(b"video")
+            created_at = datetime(2026, 3, 2, 10, 0, 11)
+            self.db_module.save_analysis(created_at, "to be deleted")
+
+            with patch.object(self.db_module, "RECORDINGS_DIR", str(recordings_dir)):
+                result = self.db_module.reset_storage()
+
+            self.assertEqual(result["status"], "ok")
+            self.assertTrue(result["deleted_database_file"])
+            self.assertEqual(result["deleted_recordings"], 1)
+            self.assertEqual(list(recordings_dir.iterdir()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

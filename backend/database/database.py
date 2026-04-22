@@ -42,6 +42,7 @@ FEEDBACK_TARGETS = {
     "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
     "varied": ("sequence_description_varied", "sequence_description_varied_id"),
     "snapshot": ("snapshot_description", "snapshot_description_id"),
+    "fullframe": ("full_frame_description", "full_frame_description_id"),
     "full_frame": ("full_frame_description", "full_frame_description_id"),
 }
 
@@ -197,6 +198,29 @@ def get_events(query: str):
         } if row["f_id"] is not None else None,
     }
 
+# lisa cora 
+@app.get("/api/stats")
+def get_stats():
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    
+    # Här använder vi de nya namnen uniform/varied
+    stats = {}
+    mapping = {
+        "snapshot": "snapshot_description",
+        "fullframe": "full_frame_description",
+        "uniform": "sequence_description_uniform",
+        "varied": "sequence_description_varied"
+    }
+    
+    for key, table in mapping.items():
+        cur.execute(f"SELECT SUM(feedback) FROM {table}")
+        res = cur.fetchone()
+        stats[key] = res if res and res is not None else 0
+        
+    conn.close()
+    return stats
 
 @app.post("/api/feedback", status_code=204)
 def post_feedback(payload: FeedbackRequest):
@@ -820,6 +844,43 @@ def seed_test_data():
         snapshot_image_base64=snapshot_b64,
     )
 
+# lisa cora 
+
+@app.post("/api/admin/reset")
+@app.patch("/api/admin/reset")
+def reset_storage():
+    """Endpoint som anropas från frontend för att rensa allt."""
+    deleted_database_file = clear_database_file()
+    deleted_recordings = clear_recordings_directory()
+    return {
+        "status": "ok",
+        "deleted_database_file": deleted_database_file,
+        "deleted_recordings": deleted_recordings,
+    }
+
+def clear_database_file() -> bool:
+    """Tar bort sqlite-filen."""
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+        return True
+    return False
+
+def clear_recordings_directory() -> int:
+    """Rensar mappen med inspelningar/bilder."""
+    import shutil
+    recordings_path = Path(RECORDINGS_DIR)
+    if not recordings_path.exists() or not recordings_path.is_dir():
+        return 0
+
+    deleted_file_count = 0
+    for child in recordings_path.iterdir():
+        if child.is_file() or child.is_symlink():
+            child.unlink()
+            deleted_file_count += 1
+        elif child.is_dir():
+            deleted_file_count += sum(1 for path in child.rglob("*") if path.is_file())
+            shutil.rmtree(child)
+    return deleted_file_count
 
 if __name__ == "__main__":
     #seed_test_data()

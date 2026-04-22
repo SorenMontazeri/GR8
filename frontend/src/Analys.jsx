@@ -2,75 +2,65 @@ import React, { useState, useEffect } from "react";
 
 function Analys({ goHome }) {
   const [stats, setStats] = useState({
-    snapshot: 25, // 0
-    fullframe: 12, // 0
-    urval1: 7, // 0
-    urval2: 18 // 0
+    snapshot: 0,
+    fullframe: 0,
+    uniform: 0,
+    varied: 0,
   });
+
+  // Get likes from database
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await fetch('http://127.0.0.1:8000/api/stats');
+
+        const data = await response.json();
+
+        // Uppdatera statet med data från databasen
+        setStats({
+          snapshot: 5,//data.snapshot,
+          fullframe: data.fullframe,
+          uniform: data.uniform, 
+          varied: data.varied
+        });
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Function to clear analysis
   const handleClear = async () => {
-    try {
-      const response = await fetch('-------API_URL------/reset', {
-        method: 'PATCH', // Eller 'PUT' beroende på API
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          snapshot: 0,
-          fullframe: 0,
-          urval1: 0,
-          urval2: 0
-        }),
-      });
+  try {
+    const response = await fetch('http://127.0.0.1:8000/api/admin/reset', {
+      method: 'POST', 
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
 
-      if (!response.ok) {
-        throw new Error('Could not reset results in database');
-      }
-      setStats({
-        snapshot: 0,
-        fullframe: 0,
-        urval1: 0,
-        urval2: 0
-      });
-
-      console.log("Analysis is cleared!");
-
-    } catch (error) {
-      console.error("Error occured:", error);
-      alert("Could not reset results in database");
+    if (!response.ok) {
+      throw new Error('Kunde inte nollställa databasen');
     }
-  };
 
-  // kommentera ut när databas är inkopplad
- 
-//   useEffect(() => {
-//     const fetchData = async () => {
-//       try {
-//         // Link to database
-//         const response = await fetch('DIN_API_URL_HÄR');
-        
-//         if (!response.ok) {
-//           throw new Error('Could not get data');
-//         }
+    // Uppdatera statet visuellt direkt
+    setStats({
+      snapshot: 0,
+      fullframe: 0,
+      urval1: 0,
+      urval2: 0
+    });
 
-//         const data = await response.json();
+    console.log("Analysen är nollställd!");
 
-//         // 3. Update state with the data from the database
-//         // We assume that the database sends an object with the same names
-//         setStats({
-//           snapshot: data.snapshot,
-//           fullframe: data.fullframe,
-//           urval1: data.urval1,
-//           urval2: data.urval2
-//         });
-//       } catch (error) {
-//         console.error("Error fetching data:", error);
-//       }
-//     };
+  } catch (error) {
+    console.error("Ett fel uppstod:", error);
+    alert("Kunde inte nollställa resultaten i databasen");
+  }
+};
 
-//     fetchData();
-//   }, []); // Runs once when the page loads
 
   return (
     <div className="flex flex-col items-center justify-start min-h-screen pt-20">

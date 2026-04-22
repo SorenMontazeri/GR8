@@ -18,7 +18,7 @@ function Analys({ goHome }) {
 
         // Uppdatera statet med data från databasen
         setStats({
-          snapshot: 5,//data.snapshot,
+          snapshot: data.snapshot,
           fullframe: data.fullframe,
           uniform: data.uniform, 
           varied: data.varied

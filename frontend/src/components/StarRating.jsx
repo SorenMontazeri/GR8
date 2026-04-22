@@ -4,25 +4,37 @@ export default function StarRating({ value = 0, onChange, groupId, imageType }) 
   const [hover, setHover] = useState(0);
 
   async function handleClick(star) {
-    onChange(star); // uppdatera Home state direkt
+    onChange(star); 
 
-    if (!groupId) return;
+    console.log("DEBUG - Skickar till backend:", { 
+      id: groupId, 
+      description_type: imageType, 
+      feedback: star 
+    });
+
+    if (!groupId) {
+      console.error("DEBUG - Fel: groupId saknas!"); 
+      return;
+    }
 
     try {
-      await fetch("http://localhost:8000/api/feedback", {
+      const response = await fetch("http://127.0.0.1:8000/api/feedback", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: groupId,
           description_type: imageType,
           feedback: star,
         }),
-
       });
+      
+      if (response.ok) {
+        console.log("DEBUG - Lyckades spara feedback!");
+      } else {
+        console.error("DEBUG - Backenden svarade med fel:", response.status);
+      }
     } catch (err) {
-      console.error("Failed to save rating:", err);
+      console.error("DEBUG - Nätverksfel:", err);
     }
   }
 

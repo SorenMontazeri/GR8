@@ -8,7 +8,7 @@ export default function ImageCarousel({ images = [], searchString }) {
     console.log("ImageCarousel received new props:",  images.length, searchString );
   }, [images, searchString]);
 
-  const testImages = ["/bird.jpg", "/flower.jpg"];
+  const testImages = [];
 
   // currentIndex håller reda på vilken bild i listan som visas just nu.
   const [currentIndex, setCurrentIndex] = useState(0);

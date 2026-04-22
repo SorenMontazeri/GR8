@@ -71,7 +71,7 @@ function handleRatingChange(imageType, newRating) {
   }
 
   const groupId = eventData?.description_group?.id;
-
+  console.log("AKTUELLT GROUP ID:", groupId);
   return (
     
     <div className="min-h-screen w-screen flex bg-[#49564F] text-white">
@@ -102,7 +102,7 @@ function handleRatingChange(imageType, newRating) {
                          <StarRating
                             value={ratings.full_frame}
                             groupId={groupId}
-                            imageType="full_frame"
+                            imageType="fullframe"
             onChange={(newRating) => handleRatingChange("full_frame", newRating)}
           />
                 </div> 

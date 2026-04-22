@@ -88,6 +88,8 @@ export default function SettingsPanel() {
         },
         body: JSON.stringify(settings),
       });
+        console.log("Saving settings:", settings)
+
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -145,7 +147,7 @@ export default function SettingsPanel() {
 
         <SettingsSection title="Fullframe">
           <label className={labelClass}>
-            <span className={labelTextClass}>Nar ska fullframe tas?</span>
+            <span className={labelTextClass}>När ska fullframe tas?</span>
             <select
               className={inputClass}
               name="fullframe_time"
@@ -184,7 +186,7 @@ export default function SettingsPanel() {
           </label>
 
           <label className={labelClass}>
-            <span className={labelTextClass}>Uniform frame metod varde</span>
+            <span className={labelTextClass}>Uniform frame method value</span>
             <input
               type="number"
               min="0"
@@ -199,7 +201,7 @@ export default function SettingsPanel() {
 
         <SettingsSection title="Frames movement">
           <label className={labelClass}>
-            <span className={labelTextClass}>Movement metod</span>
+            <span className={labelTextClass}>Movement method</span>
             <select
               className={inputClass}
               name="movement_tracker_type"

@@ -80,7 +80,13 @@ class Camera:
         self.init_buffer()
         self.init_mqtt(broker_host, broker_port)
 
+        # desync
+        self.recording_start_time = None
+        self.first_message = True
+        self.desync = None
+
     def init_recording(self, ffmpeg: str, segment_seconds: int) -> None:
+
         self.recording_process = start_recording_ffmpeg(
             ffmpeg, self.rtsp_url, self.camera_id, segment_seconds
         )
@@ -122,6 +128,7 @@ class Camera:
         )
 
     def on_message(self, client, userdata, msg) -> None:
+        server_time = datetime.now(timezone.utc)
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
             data = json.loads(payload)
@@ -132,10 +139,16 @@ class Camera:
             print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
             return
                 
-                
+        
         # Get necessary info
-        target_start_time = self._extract_event_timestamp(data)
-        target_end_time = self._extract_event_end_time(data)
+        package_start_time = self._extract_event_timestamp(data)
+        package_end_time = self._extract_event_end_time(data)
+        delta_time = package_end_time-server_time
+        print(delta_time)
+
+        target_start_time = package_start_time - delta_time
+        target_end_time = package_end_time - delta_time
+
         image = data.get("image")
         snapshot_b64 = image.get("data") if isinstance(image, dict) else None
         if snapshot_b64 is None:
@@ -213,7 +226,7 @@ class Camera:
             except ValueError:
                 print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
 
-        return datetime.now(timezone.utc)
+        return None 
     
     def _extract_event_end_time(self, payload: Dict[str, Any]) -> datetime:
         end_time = payload.get("end_time")
@@ -226,7 +239,7 @@ class Camera:
             except ValueError:
                 print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {end_time}")
 
-        return datetime.now(timezone.utc)
+        return None
 
     def init_buffer(self) -> None:
         max_frames = self.hot_buffer_seconds * self.hot_buffer_fps

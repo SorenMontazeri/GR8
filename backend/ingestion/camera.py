@@ -1,6 +1,7 @@
 from __future__ import annotations
 import base64
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 import threading
@@ -69,6 +70,10 @@ class Camera:
         self._buffer_stop_event = threading.Event()
         self._buffer_thread: threading.Thread | None = None
         self.analysis_client = analysis_client
+        self._analysis_pool = ThreadPoolExecutor(
+            max_workers=10,
+            thread_name_prefix=f"camera-{self.camera_id}-analysis",
+        )
 
         # Fix for asyncio
         self._async_loop = asyncio.new_event_loop()
@@ -128,7 +133,7 @@ class Camera:
         )
 
     def on_message(self, client, userdata, msg) -> None:
-        server_time = datetime.now(timezone.utc)
+        received_at = datetime.now(timezone.utc)
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
             data = json.loads(payload)
@@ -138,16 +143,22 @@ class Camera:
         if not isinstance(data, dict):
             print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
             return
-                
-        
+
+        self._analysis_pool.submit(self._process_message, received_at, data)
+
+    def _process_message(self, received_at: datetime, data: Dict[str, Any]) -> None:
         # Get necessary info
         package_start_time = self._extract_event_timestamp(data)
         package_end_time = self._extract_event_end_time(data)
-        delta_time = package_end_time-server_time
+        if package_start_time is None or package_end_time is None:
+            print(f"[camera:{self.camera_id}] missing mqtt timestamps")
+            return
+
+        delta_time = received_at - package_end_time
         print(delta_time)
 
-        target_start_time = package_start_time - delta_time
-        target_end_time = package_end_time - delta_time
+        target_start_time = package_start_time + delta_time
+        target_end_time = package_end_time + delta_time
 
         image = data.get("image")
         snapshot_b64 = image.get("data") if isinstance(image, dict) else None
@@ -452,6 +463,7 @@ class Camera:
 
         self.mqtt_client.loop_stop()
         self.mqtt_client.disconnect()
+        self._analysis_pool.shutdown(wait=True)
 
         stop_recording(self.recording_process)
         self.recording_process = None

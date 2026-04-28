@@ -377,6 +377,55 @@ class Camera:
             selected_timestamps.append(frame.timestamp)
 
         return selected_frames, selected_timestamps
+<<<<<<< HEAD
+=======
+    
+    def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
+        settings = load_settings()
+
+        if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
+            return [], []
+
+        def thumbnail(frame: BufferedFrame):
+            image = cv2.imdecode(np.frombuffer(frame.jpeg_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+            resized_image = cv2.resize(image, (max(1, frame.width // 8), max(1, frame.height // 8)), interpolation=cv2.INTER_AREA)
+            return cv2.GaussianBlur(resized_image, (3, 3), 0)
+
+        def changed_pixel_ratio(left, right) -> float:
+            pixel_threshold = settings.get("movement_tracker_pixel_threshold", 30)
+            diff = cv2.absdiff(left, right)
+            return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
+
+        def encode_frame(frame: BufferedFrame) -> str:
+            return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
+
+        if self.frame_buffer is None:
+            return [], []
+
+        with self.frame_buffer._lock:
+            buffer_frames = [
+                frame for frame in self.frame_buffer._frames if start_time <= frame.timestamp <= end_time
+            ]
+
+        if not buffer_frames:
+            return [], []
+        
+
+        selected_frames = [encode_frame(buffer_frames[0])]
+        selected_timestamps = [buffer_frames[0].timestamp]
+        current_frame = buffer_frames[0]
+        
+        for next_frame in buffer_frames[1:]:
+            change_percent = changed_pixel_ratio(thumbnail(current_frame), thumbnail(next_frame))
+            if change_percent > max_change_percent and next_frame.timestamp < current_frame.timestamp + timedelta(seconds=max_interval_seconds):
+                continue
+
+            selected_frames.append(encode_frame(next_frame))
+            selected_timestamps.append(next_frame.timestamp)
+            current_frame = next_frame
+
+        return selected_frames, selected_timestamps
+>>>>>>> 0b94fc6c8dcc0606ad57739398c8e8b4deb9ed0f
 
     def hot_buffer_stats(self) -> Dict[str, int]:
         if self.frame_buffer is None:

@@ -29,7 +29,7 @@ from database.database import save_description_bundle
 from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
-from ingestion.camera.frame_selection import frame_selection_uniform, frame_selection_movement
+from ingestion.analysis.frame_selection import frame_selection_uniform, frame_selection_movement
 
 
 def load_settings():

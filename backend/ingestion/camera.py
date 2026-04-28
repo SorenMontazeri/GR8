@@ -30,14 +30,12 @@ from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRing
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
 
-
 def load_settings():
     settings_path = (
         Path(__file__).resolve().parent.parent / "database" / "settings.json"
     )
     with open(settings_path, "r", encoding="utf-8") as f:
         return json.load(f)
-
 
 class Camera:
     def __init__(
@@ -51,7 +49,7 @@ class Camera:
         segment_seconds: int = 10,
         hot_buffer_seconds: int = 30,
         hot_buffer_fps: int = 5,
-        hot_buffer_max_bytes: int = 50 * 1024 * 1024,
+        hot_buffer_max_bytes: int = 50 * 1024 * 1024, #TODO increase max bytes if needed
         mqtt_buffer_max_events: int = 300,
         mqtt_buffer_max_bytes: int = 5 * 1024 * 1024,
         hot_buffer_jpeg_quality: int = 70,
@@ -111,8 +109,7 @@ class Camera:
         self._async_thread.start()
 
         if not self._async_loop_ready.wait(timeout=5.0):
-            raise RuntimeError(
-                f"[camera:{self.camera_id}] async loop failed to start")
+            raise RuntimeError(f"[camera:{self.camera_id}] async loop failed to start")
 
     def _async_loop_thread_main(self) -> None:
         asyncio.set_event_loop(self._async_loop)
@@ -140,12 +137,11 @@ class Camera:
         except Exception as e:
             print(f"[camera:{self.camera_id}][mqtt] invalid json: {e}")
             return
-
         if not isinstance(data, dict):
-            print(
-                f"[camera:{self.camera_id}][mqtt] payload is not a JSON")
+            print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
             return
-
+                
+                
         # ------------------------------------------------------------------
         # Extract event timing information
         # ------------------------------------------------------------------
@@ -161,99 +157,65 @@ class Camera:
             print(f"[camera:{self.camera_id}] missing mqtt snapshot")
             return
 
-        # ------------------------------------------------------------------
-        # Retrieve full frame from hot buffer at event start time
-        # ------------------------------------------------------------------
+
         matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
         if matched_full_frame is None:
-            print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
-            return
+                print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
+                return
+        full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
 
-        full_frame_b64 = base64.b64encode(
-            matched_full_frame.jpeg_bytes).decode("utf-8")
+        selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
+        selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
 
-        # ==================================================================
-        # OLD CODE (no longer used)
-        # The system no longer runs all frame selection methods in parallel.
-        # Selection is now driven by settings.json.
-        # ==================================================================
+        # Temporary solution for short consolodated, might have to prune short consolodated
+        if not selection_1_images and not selection_1_timestamps:
+            selection_1_images = [full_frame_b64]
+            selection_1_timestamps = [target_start_time]
 
-        # selection_1_images, selection_1_timestamps = \
-        #     self.frame_selection_1(target_start_time, target_end_time)
+        if not selection_2_images and not selection_2_timestamps:
+            selection_2_images = [full_frame_b64]
+            selection_2_timestamps = [target_start_time]
 
-        # selection_2_images, selection_2_timestamps = \
-        #     self.frame_selection_2(target_start_time, target_end_time, 90)
 
-        # if not selection_1_images and not selection_1_timestamps:
-        #     selection_1_images = [full_frame_b64]
-        #     selection_1_timestamps = [target_start_time]
-
-        # if not selection_2_images and not selection_2_timestamps:
-        #     selection_2_images = [full_frame_b64]
-        #     selection_2_timestamps = [target_start_time]
-
-        # ==================================================================
-        # NEW CODE: Select frame selection method based on settings.json
-        # ==================================================================
-
-        try:
-            method = self.get_frame_selection_method()
-
-            selected_images, selected_timestamps = self.select_frames(
-                method=method,
-                start=target_start_time,
-                end=target_end_time,
-                fallback_b64=full_frame_b64,
-            )
-
-            # Safety fallback – always send at least one frame
-            if not selected_images:
-                selected_images = [full_frame_b64]
-                selected_timestamps = [target_start_time]
-
-        except Exception as exc:
-            print(f"[camera:{self.camera_id}] frame selection failed: {exc}")
-            return
-
-        # ------------------------------------------------------------------
-        # Run analysis asynchronously on selected frames only
-        # ------------------------------------------------------------------
         try:
             future = asyncio.run_coroutine_threadsafe(
-                self.analysis_client.query_description_open(selected_images),
+                self._run_analysis(
+                    snapshot_b64=snapshot_b64,
+                    full_frame_b64=full_frame_b64,
+                    selection_1_images=selection_1_images,
+                    selection_2_images=selection_2_images,
+                ),
                 self._async_loop,
             )
-            response = future.result(timeout=60)
+            response_snapshot, response_full_frame, response_selection_1, response_selection_2 = future.result(timeout=60)
 
         except Exception as exc:
             print(f"[camera:{self.camera_id}] analysis failed: {exc}")
             return
+        
+        print(response_snapshot)
+        print(response_full_frame)
+        print(response_selection_1)
+        print(response_selection_2)
 
-        print(response)
-
-        # ------------------------------------------------------------------
-        # Persist results
-        # ------------------------------------------------------------------
         try:
             save_description_bundle(
                 target_start_time,
                 target_end_time,
                 datetime.now(timezone.utc),
-                response["description"],        # selected-method description
-                None,                           # no secondary method anymore
-                None,                           # snapshot description unused
-                None,                           # fullframe description unused
-                selected_timestamps,
-                [],
+                response_selection_1["description"],
+                response_selection_2["description"],
+                response_snapshot["description"],
+                response_full_frame["description"],
+                selection_1_timestamps,
+                selection_2_timestamps,
                 target_start_time,
                 matched_full_frame.timestamp,
                 snapshot_b64,
-                # optional but recommended:
-                # frame_selection_method=method,
             )
         except Exception as exc:
-            print(
-                f"[camera:{self.camera_id}] saving to database failed: {exc}")
+            print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
+
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")
@@ -264,8 +226,7 @@ class Camera:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 return parsed.astimezone(timezone.utc)
             except ValueError:
-                print(
-                    f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
+                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
 
         return datetime.now(timezone.utc)
     
@@ -273,14 +234,12 @@ class Camera:
         end_time = payload.get("end_time")
         if isinstance(end_time, str) and end_time.strip():
             try:
-                parsed = datetime.fromisoformat(
-                    end_time.strip().replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(end_time.strip().replace("Z", "+00:00"))
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 return parsed.astimezone(timezone.utc)
             except ValueError:
-                print(
-                    f"[camera:{self.camera_id}][mqtt] invalid end_time format: {end_time}")
+                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {end_time}")
 
         return datetime.now(timezone.utc)
 
@@ -300,14 +259,12 @@ class Camera:
 
     def _buffer_loop(self) -> None:
         frame_interval = 1.0 / float(self.hot_buffer_fps)
-        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(
-            self.hot_buffer_jpeg_quality)]
+        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.hot_buffer_jpeg_quality)]
 
         while not self._buffer_stop_event.is_set():
             capture = cv2.VideoCapture(self.rtsp_url)
             if not capture.isOpened():
-                print(
-                    f"[camera:{self.camera_id}][buffer] RTSP open failed, retrying...")
+                print(f"[camera:{self.camera_id}][buffer] RTSP open failed, retrying...")
                 time.sleep(1.0)
                 continue
 
@@ -325,7 +282,7 @@ class Camera:
                 next_capture_ts = now + frame_interval
 
                 h, w = frame.shape[:2]
-                if (self.hot_buffer_max_width > 0 and (w > self.hot_buffer_max_width)):
+                if self.hot_buffer_max_width > 0 and w > self.hot_buffer_max_width:
                     new_h = int(h * (self.hot_buffer_max_width / float(w)))
                     frame = cv2.resize(
                         frame,
@@ -383,29 +340,6 @@ class Camera:
             "frame_found": frame is not None,
             "mqtt_found": mqtt_event is not None,
         }
-    
-    
-    def get_frame_selection_method(self) -> str:
-        if self.settings.get("movement_samplerate", 0) == 1:
-            return "movement"
-        if self.settings.get("uniform_samplerate", 0) == 1:
-            return "uniform"
-        return "fullframe"
-
-    def select_frames(self, method: str, start: datetime, end: datetime, fallback_b64: str):
-        if method == "fullframe":
-            return [fallback_b64], [start]
-
-        if method == "uniform":
-            return self.frame_selection_1(start, end)
-
-        if method == "movement":
-            return self.frame_selection_2(start, end, max_change_percent=self.settings.get("movement_tracker_type_threshold", 30), 
-                                          max_interval_seconds=self.settings.get("movement_samplerate_value", 30),
-            )
-
-        raise ValueError(f"Unknown selection method: {method}")
-
 
     def frame_selection_1(self, start_time: datetime, end_time: datetime) -> tuple[list[str], list[datetime]]:
         if end_time < start_time:
@@ -441,6 +375,7 @@ class Camera:
         return selected_frames, selected_timestamps
     
     def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
+        
 
         if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
             return [], []

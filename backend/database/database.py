@@ -8,6 +8,7 @@ import os
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+import settings_editor
 
 import sqlite3
 
@@ -16,6 +17,8 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
+SETTINGS_PATH = Path(__file__).with_name("settings.json")
+settings_editor.SETTINGS_PATH = SETTINGS_PATH
 #RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
 RECORDINGS_DIR = str(Path(__file__).resolve().parent / "recordings/1")
 
@@ -23,11 +26,7 @@ RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 MODEL_DIR = "./models/all-MiniLM-L6-v2"
-if Path(MODEL_DIR).exists():
-    model = SentenceTransformer(MODEL_DIR)
-else:
-    model = SentenceTransformer(MODEL_NAME)
-    model.save(MODEL_DIR)
+model = None
 app = FastAPI()
 
 app.add_middleware(
@@ -388,6 +387,7 @@ def validate_settings(settings: dict) -> None:
 
 
 def save_settings(settings: dict) -> None:
+    settings_editor.save_settings(settings)
     create_database()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -406,6 +406,12 @@ def save_settings(settings: dict) -> None:
 
 
 def load_settings() -> dict:
+    file_settings = settings_editor.load_settings()
+    if file_settings:
+        settings = default_settings()
+        settings.update(file_settings)
+        return settings
+
     create_database()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -713,8 +719,19 @@ def image_from_timestamp(t, clip=10):
     print(f"[database] {message}")
     raise FileNotFoundError(message)
 
+def get_model():
+    global model
+    if model is None:
+        if Path(MODEL_DIR).exists():
+            model = SentenceTransformer(MODEL_DIR)
+        else:
+            model = SentenceTransformer(MODEL_NAME)
+            model.save(MODEL_DIR)
+    return model
+
 def embed(text: str):
-    return model.encode(text, normalize_embeddings=True).tolist()
+    embed_model = get_model()
+    return embed_model.encode(text, normalize_embeddings=True).tolist()
 
 def cosine_similarity(a, b):
     return sum(x * y for x, y in zip(a, b))

@@ -22,9 +22,11 @@ export default function ImageCarousel({ images = [], searchString }) {
   // eller när en ny lista med bilder kommer in.
   useEffect(() => {
     if (displayImages.length > 0) {
+      console.log("Updating currentSrc for image at index", currentIndex);
       
     setCurrentSrc(renderImage());
     } else {
+      console.warn("No images to display, clearing currentSrc");
       setCurrentSrc("");
     }
   }, [currentIndex, images]);

@@ -1,0 +1,12 @@
+{
+  "min_event_duration": 0,
+  "prompt_fullframe_snapshot": "",
+  "prompt_uniform_movement": "",
+  "fullframe_time": -1,
+  "uniform_samplerate": 1,
+  "uniform_samplerate_value": 0,
+  "movement_tracker_type": 1,
+  "movement_tracker_type_threshhold": 100,
+  "movement_samplerate": 1,
+  "movement_samplerate_value": 0
+}

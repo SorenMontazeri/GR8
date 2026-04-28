@@ -29,6 +29,8 @@ from database.database import save_description_bundle
 from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
+from ingestion.camera.frame_selection import frame_selection_uniform, frame_selection_movement
+
 
 def load_settings():
     settings_path = (
@@ -120,14 +122,14 @@ class Camera:
         self,
         snapshot_b64: str,
         full_frame_b64: str,
-        selection_1_images: list[str],
-        selection_2_images: list[str],
+        selection_uniform_images: list[str],
+        selection_movement_images: list[str],
     ) -> tuple[Any, Any, Any, Any]:
         return await asyncio.gather(
             self.analysis_client.query_description_open([snapshot_b64]),
             self.analysis_client.query_description_open([full_frame_b64]),
-            self.analysis_client.query_description_open(selection_1_images),
-            self.analysis_client.query_description_open(selection_2_images),
+            self.analysis_client.query_description_open(selection_uniform_images),
+            self.analysis_client.query_description_open(selection_movement_images),
         )
 
     def on_message(self, client, userdata, msg) -> None:
@@ -157,24 +159,26 @@ class Camera:
             print(f"[camera:{self.camera_id}] missing mqtt snapshot")
             return
 
-
+        # ------------------------------------------------------------------
+        # Retrieve full frame from hot buffer at event start time
+        # ------------------------------------------------------------------
         matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
         if matched_full_frame is None:
                 print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
                 return
         full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
 
-        selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
-        selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
+        selection_uniform_images, selection_uniform_timestamps =  frame_selection_uniform(self.frame_buffer,target_start_time, target_end_time)
+        selection_movement_images, selection_movement_timestamps =  frame_selection_movement(self.frame_buffer, target_start_time, target_end_time, 90)
 
         # Temporary solution for short consolodated, might have to prune short consolodated
-        if not selection_1_images and not selection_1_timestamps:
-            selection_1_images = [full_frame_b64]
-            selection_1_timestamps = [target_start_time]
+        if not selection_uniform_images and not selection_uniform_timestamps:
+            selection_uniform_images = [full_frame_b64]
+            selection_uniform_timestamps = [target_start_time]
 
-        if not selection_2_images and not selection_2_timestamps:
-            selection_2_images = [full_frame_b64]
-            selection_2_timestamps = [target_start_time]
+        if not selection_movement_images and not selection_movement_timestamps:
+            selection_movement_images = [full_frame_b64]
+            selection_movement_timestamps = [target_start_time]
 
 
         try:
@@ -182,12 +186,12 @@ class Camera:
                 self._run_analysis(
                     snapshot_b64=snapshot_b64,
                     full_frame_b64=full_frame_b64,
-                    selection_1_images=selection_1_images,
-                    selection_2_images=selection_2_images,
+                    selection_uniform_images=selection_uniform_images,
+                    selection_movement_images=selection_movement_images,
                 ),
                 self._async_loop,
             )
-            response_snapshot, response_full_frame, response_selection_1, response_selection_2 = future.result(timeout=60)
+            response_snapshot, response_full_frame, response_selection_uniform, response_selection_movement = future.result(timeout=60)
 
         except Exception as exc:
             print(f"[camera:{self.camera_id}] analysis failed: {exc}")
@@ -195,20 +199,20 @@ class Camera:
         
         print(response_snapshot)
         print(response_full_frame)
-        print(response_selection_1)
-        print(response_selection_2)
+        print(response_selection_uniform)
+        print(response_selection_movement)
 
         try:
             save_description_bundle(
                 target_start_time,
                 target_end_time,
                 datetime.now(timezone.utc),
-                response_selection_1["description"],
-                response_selection_2["description"],
+                response_selection_uniform["description"],
+                response_selection_movement["description"],
                 response_snapshot["description"],
                 response_full_frame["description"],
-                selection_1_timestamps,
-                selection_2_timestamps,
+                selection_uniform_timestamps,
+                selection_movement_timestamps,
                 target_start_time,
                 matched_full_frame.timestamp,
                 snapshot_b64,
@@ -341,7 +345,7 @@ class Camera:
             "mqtt_found": mqtt_event is not None,
         }
 
-    def frame_selection_1(self, start_time: datetime, end_time: datetime) -> tuple[list[str], list[datetime]]:
+    def frame_selection_uniform(self, start_time: datetime, end_time: datetime) -> tuple[list[str], list[datetime]]:
         if end_time < start_time:
             return [], []
 
@@ -371,52 +375,6 @@ class Camera:
             seen.add(frame.jpeg_bytes)
             selected_frames.append(encode_frame(frame))
             selected_timestamps.append(frame.timestamp)
-
-        return selected_frames, selected_timestamps
-    
-    def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
-        
-
-        if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
-            return [], []
-
-        def thumbnail(frame: BufferedFrame):
-            image = cv2.imdecode(np.frombuffer(frame.jpeg_bytes, dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
-            resized_image = cv2.resize(image, (max(1, frame.width // 8), max(1, frame.height // 8)), interpolation=cv2.INTER_AREA)
-            return cv2.GaussianBlur(resized_image, (3, 3), 0)
-
-        def changed_pixel_ratio(left, right) -> float:
-            pixel_threshold = 12
-            diff = cv2.absdiff(left, right)
-            return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
-
-        def encode_frame(frame: BufferedFrame) -> str:
-            return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
-
-        if self.frame_buffer is None:
-            return [], []
-
-        with self.frame_buffer._lock:
-            buffer_frames = [
-                frame for frame in self.frame_buffer._frames if start_time <= frame.timestamp <= end_time
-            ]
-
-        if not buffer_frames:
-            return [], []
-        
-
-        selected_frames = [encode_frame(buffer_frames[0])]
-        selected_timestamps = [buffer_frames[0].timestamp]
-        current_frame = buffer_frames[0]
-        
-        for next_frame in buffer_frames[1:]:
-            change_percent = changed_pixel_ratio(thumbnail(current_frame), thumbnail(next_frame))
-            if change_percent > max_change_percent and next_frame.timestamp < current_frame.timestamp + timedelta(seconds=max_interval_seconds):
-                continue
-
-            selected_frames.append(encode_frame(next_frame))
-            selected_timestamps.append(next_frame.timestamp)
-            current_frame = next_frame
 
         return selected_frames, selected_timestamps
 

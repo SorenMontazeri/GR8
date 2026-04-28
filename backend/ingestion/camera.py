@@ -375,7 +375,7 @@ class Camera:
         return selected_frames, selected_timestamps
     
     def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
-        
+        settings = load_settings()
 
         if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
             return [], []
@@ -386,7 +386,7 @@ class Camera:
             return cv2.GaussianBlur(resized_image, (3, 3), 0)
 
         def changed_pixel_ratio(left, right) -> float:
-            pixel_threshold = 12
+            pixel_threshold = settings.get("movement_tracker_pixel_threshold")
             diff = cv2.absdiff(left, right)
             return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
 

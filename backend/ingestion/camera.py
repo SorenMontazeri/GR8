@@ -132,124 +132,124 @@ class Camera:
             self.analysis_client.query_description_open(selection_2_images),
         )
 
-def on_message(self, client, userdata, msg) -> None:
-    try:
-        payload = msg.payload.decode("utf-8", errors="replace")
-        data = json.loads(payload)
-    except Exception as e:
-        print(f"[camera:{self.camera_id}][mqtt] invalid json: {e}")
-        return
+    def on_message(self, client, userdata, msg) -> None:
+        try:
+            payload = msg.payload.decode("utf-8", errors="replace")
+            data = json.loads(payload)
+        except Exception as e:
+            print(f"[camera:{self.camera_id}][mqtt] invalid json: {e}")
+            return
 
-    if not isinstance(data, dict):
-        print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
-        return
+        if not isinstance(data, dict):
+            print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
+            return
 
-    # ------------------------------------------------------------------
-    # Extract event timing information
-    # ------------------------------------------------------------------
-    target_start_time = self._extract_event_timestamp(data)
-    target_end_time = self._extract_event_end_time(data)
+        # ------------------------------------------------------------------
+        # Extract event timing information
+        # ------------------------------------------------------------------
+        target_start_time = self._extract_event_timestamp(data)
+        target_end_time = self._extract_event_end_time(data)
 
-    # ------------------------------------------------------------------
-    # Extract snapshot image from MQTT payload
-    # ------------------------------------------------------------------
-    image = data.get("image")
-    snapshot_b64 = image.get("data") if isinstance(image, dict) else None
-    if snapshot_b64 is None:
-        print(f"[camera:{self.camera_id}] missing mqtt snapshot")
-        return
+        # ------------------------------------------------------------------
+        # Extract snapshot image from MQTT payload
+        # ------------------------------------------------------------------
+        image = data.get("image")
+        snapshot_b64 = image.get("data") if isinstance(image, dict) else None
+        if snapshot_b64 is None:
+            print(f"[camera:{self.camera_id}] missing mqtt snapshot")
+            return
 
-    # ------------------------------------------------------------------
-    # Retrieve full frame from hot buffer at event start time
-    # ------------------------------------------------------------------
-    matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
-    if matched_full_frame is None:
-        print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
-        return
+        # ------------------------------------------------------------------
+        # Retrieve full frame from hot buffer at event start time
+        # ------------------------------------------------------------------
+        matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
+        if matched_full_frame is None:
+            print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
+            return
 
-    full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
+        full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
 
-    # ==================================================================
-    # OLD CODE (no longer used)
-    # The system no longer runs all frame selection methods in parallel.
-    # Selection is now driven by settings.json.
-    # ==================================================================
+        # ==================================================================
+        # OLD CODE (no longer used)
+        # The system no longer runs all frame selection methods in parallel.
+        # Selection is now driven by settings.json.
+        # ==================================================================
 
-    # selection_1_images, selection_1_timestamps = \
-    #     self.frame_selection_1(target_start_time, target_end_time)
+        # selection_1_images, selection_1_timestamps = \
+        #     self.frame_selection_1(target_start_time, target_end_time)
 
-    # selection_2_images, selection_2_timestamps = \
-    #     self.frame_selection_2(target_start_time, target_end_time, 90)
+        # selection_2_images, selection_2_timestamps = \
+        #     self.frame_selection_2(target_start_time, target_end_time, 90)
 
-    # if not selection_1_images and not selection_1_timestamps:
-    #     selection_1_images = [full_frame_b64]
-    #     selection_1_timestamps = [target_start_time]
+        # if not selection_1_images and not selection_1_timestamps:
+        #     selection_1_images = [full_frame_b64]
+        #     selection_1_timestamps = [target_start_time]
 
-    # if not selection_2_images and not selection_2_timestamps:
-    #     selection_2_images = [full_frame_b64]
-    #     selection_2_timestamps = [target_start_time]
+        # if not selection_2_images and not selection_2_timestamps:
+        #     selection_2_images = [full_frame_b64]
+        #     selection_2_timestamps = [target_start_time]
 
-    # ==================================================================
-    # NEW CODE: Select frame selection method based on settings.json
-    # ==================================================================
+        # ==================================================================
+        # NEW CODE: Select frame selection method based on settings.json
+        # ==================================================================
 
-    try:
-        method = self.get_frame_selection_method()
+        try:
+            method = self.get_frame_selection_method()
 
-        selected_images, selected_timestamps = self.select_frames(
-            method = method,
-            start = target_start_time,
-            end = target_end_time,
-            fallback_b64 = full_frame_b64,
-        )
+            selected_images, selected_timestamps = self.select_frames(
+                method = method,
+                start = target_start_time,
+                end = target_end_time,
+                fallback_b64 = full_frame_b64,
+            )
 
-        # Safety fallback – always send at least one frame
-        if not selected_images:
-            selected_images = [full_frame_b64]
-            selected_timestamps = [target_start_time]
+            # Safety fallback – always send at least one frame
+            if not selected_images:
+                selected_images = [full_frame_b64]
+                selected_timestamps = [target_start_time]
 
-    except Exception as exc:
-        print(f"[camera:{self.camera_id}] frame selection failed: {exc}")
-        return
+        except Exception as exc:
+            print(f"[camera:{self.camera_id}] frame selection failed: {exc}")
+            return
 
-    # ------------------------------------------------------------------
-    # Run analysis asynchronously on selected frames only
-    # ------------------------------------------------------------------
-    try:
-        future = asyncio.run_coroutine_threadsafe(
-            self.analysis_client.query_description_open(selected_images),
-            self._async_loop,
-        )
-        response = future.result(timeout=60)
+        # ------------------------------------------------------------------
+        # Run analysis asynchronously on selected frames only
+        # ------------------------------------------------------------------
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self.analysis_client.query_description_open(selected_images),
+                self._async_loop,
+            )
+            response = future.result(timeout=60)
 
-    except Exception as exc:
-        print(f"[camera:{self.camera_id}] analysis failed: {exc}")
-        return
+        except Exception as exc:
+            print(f"[camera:{self.camera_id}] analysis failed: {exc}")
+            return
 
-    print(response)
+        print(response)
 
-    # ------------------------------------------------------------------
-    # Persist results
-    # ------------------------------------------------------------------
-    try:
-        save_description_bundle(
-            target_start_time,
-            target_end_time,
-            datetime.now(timezone.utc),
-            response["description"],        # selected-method description
-            None,                           # no secondary method anymore
-            None,                           # snapshot description unused
-            None,                           # fullframe description unused
-            selected_timestamps,
-            [],
-            target_start_time,
-            matched_full_frame.timestamp,
-            snapshot_b64,
-            # optional but recommended:
-            # frame_selection_method=method,
-        )
-    except Exception as exc:
-        print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
+        # ------------------------------------------------------------------
+        # Persist results
+        # ------------------------------------------------------------------
+        try:
+            save_description_bundle(
+                target_start_time,
+                target_end_time,
+                datetime.now(timezone.utc),
+                response["description"],        # selected-method description
+                None,                           # no secondary method anymore
+                None,                           # snapshot description unused
+                None,                           # fullframe description unused
+                selected_timestamps,
+                [],
+                target_start_time,
+                matched_full_frame.timestamp,
+                snapshot_b64,
+                # optional but recommended:
+                # frame_selection_method=method,
+            )
+        except Exception as exc:
+            print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
 
 
 

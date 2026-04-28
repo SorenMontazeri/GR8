@@ -1,0 +1,12 @@
+{
+  "min_event_duration": 10,
+  "prompt_fullframe_snapshot": "Hejdå",
+  "prompt_uniform_movement": "Hejhej",
+  "fullframe_time": -1,
+  "uniform_samplerate": 0,
+  "uniform_samplerate_value": 10,
+  "movement_tracker_type": 1,
+  "movement_tracker_type_threshhold": 30,
+  "movement_samplerate": 0,
+  "movement_samplerate_value": 30
+}

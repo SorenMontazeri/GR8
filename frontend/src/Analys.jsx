@@ -92,13 +92,13 @@ function Analys({ goHome }) {
           
           <div className="pt-8 space-y-4 border-t border-gray-500/30">
             <div className="flex justify-between max-w-sm italic text-gray-200">
-              <p>Urvalsstrategi 1:</p> 
-              <p className="text-[#FFCC00] not-italic font-bold">{stats.urval1}</p>
+              <p>Uniform:</p> 
+              <p className="text-[#FFCC00] not-italic font-bold">{stats.uniform}</p>
             </div>
             
             <div className="flex justify-between max-w-sm italic text-gray-200">
-              <p>Urvalsstrategi 2:</p> 
-              <p className="text-[#FFCC00] not-italic font-bold">{stats.urval2}</p>
+              <p>Variered:</p> 
+              <p className="text-[#FFCC00] not-italic font-bold">{stats.varied}</p>
             </div>
           </div>
         </div>

@@ -51,7 +51,7 @@ class Camera:
         segment_seconds: int = 10,
         hot_buffer_seconds: int = 30,
         hot_buffer_fps: int = 5,
-        hot_buffer_max_bytes: int = 50 * 1024 * 1024, #TODO increase max bytes if needed
+        hot_buffer_max_bytes: int = 50 * 1024 * 1024,
         mqtt_buffer_max_events: int = 300,
         mqtt_buffer_max_bytes: int = 5 * 1024 * 1024,
         hot_buffer_jpeg_quality: int = 70,
@@ -111,7 +111,8 @@ class Camera:
         self._async_thread.start()
 
         if not self._async_loop_ready.wait(timeout=5.0):
-            raise RuntimeError(f"[camera:{self.camera_id}] async loop failed to start")
+            raise RuntimeError(
+                f"[camera:{self.camera_id}] async loop failed to start")
 
     def _async_loop_thread_main(self) -> None:
         asyncio.set_event_loop(self._async_loop)
@@ -141,7 +142,8 @@ class Camera:
             return
 
         if not isinstance(data, dict):
-            print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
+            print(
+                f"[camera:{self.camera_id}][mqtt] payload is not a JSON")
             return
 
         # ------------------------------------------------------------------
@@ -167,7 +169,8 @@ class Camera:
             print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
             return
 
-        full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
+        full_frame_b64 = base64.b64encode(
+            matched_full_frame.jpeg_bytes).decode("utf-8")
 
         # ==================================================================
         # OLD CODE (no longer used)
@@ -197,10 +200,10 @@ class Camera:
             method = self.get_frame_selection_method()
 
             selected_images, selected_timestamps = self.select_frames(
-                method = method,
-                start = target_start_time,
-                end = target_end_time,
-                fallback_b64 = full_frame_b64,
+                method=method,
+                start=target_start_time,
+                end=target_end_time,
+                fallback_b64=full_frame_b64,
             )
 
             # Safety fallback – always send at least one frame
@@ -249,9 +252,8 @@ class Camera:
                 # frame_selection_method=method,
             )
         except Exception as exc:
-            print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
-
-
+            print(
+                f"[camera:{self.camera_id}] saving to database failed: {exc}")
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")
@@ -262,7 +264,8 @@ class Camera:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 return parsed.astimezone(timezone.utc)
             except ValueError:
-                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
+                print(
+                    f"[camera:{self.camera_id}][mqtt] invalid start_time format: {start_time}")
 
         return datetime.now(timezone.utc)
     
@@ -270,12 +273,14 @@ class Camera:
         end_time = payload.get("end_time")
         if isinstance(end_time, str) and end_time.strip():
             try:
-                parsed = datetime.fromisoformat(end_time.strip().replace("Z", "+00:00"))
+                parsed = datetime.fromisoformat(
+                    end_time.strip().replace("Z", "+00:00"))
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
                 return parsed.astimezone(timezone.utc)
             except ValueError:
-                print(f"[camera:{self.camera_id}][mqtt] invalid start_time format: {end_time}")
+                print(
+                    f"[camera:{self.camera_id}][mqtt] invalid end_time format: {end_time}")
 
         return datetime.now(timezone.utc)
 
@@ -295,12 +300,14 @@ class Camera:
 
     def _buffer_loop(self) -> None:
         frame_interval = 1.0 / float(self.hot_buffer_fps)
-        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.hot_buffer_jpeg_quality)]
+        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(
+            self.hot_buffer_jpeg_quality)]
 
         while not self._buffer_stop_event.is_set():
             capture = cv2.VideoCapture(self.rtsp_url)
             if not capture.isOpened():
-                print(f"[camera:{self.camera_id}][buffer] RTSP open failed, retrying...")
+                print(
+                    f"[camera:{self.camera_id}][buffer] RTSP open failed, retrying...")
                 time.sleep(1.0)
                 continue
 
@@ -318,7 +325,7 @@ class Camera:
                 next_capture_ts = now + frame_interval
 
                 h, w = frame.shape[:2]
-                if self.hot_buffer_max_width > 0 and w > self.hot_buffer_max_width:
+                if (self.hot_buffer_max_width > 0 and (w > self.hot_buffer_max_width)):
                     new_h = int(h * (self.hot_buffer_max_width / float(w)))
                     frame = cv2.resize(
                         frame,
@@ -434,7 +441,6 @@ class Camera:
         return selected_frames, selected_timestamps
     
     def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
-        
 
         if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
             return [], []

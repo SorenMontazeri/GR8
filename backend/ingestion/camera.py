@@ -386,7 +386,7 @@ class Camera:
             return cv2.GaussianBlur(resized_image, (3, 3), 0)
 
         def changed_pixel_ratio(left, right) -> float:
-            pixel_threshold = settings.get("movement_tracker_pixel_threshold")
+            pixel_threshold = settings.get("movement_tracker_pixel_threshold", 30)
             diff = cv2.absdiff(left, right)
             return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
 

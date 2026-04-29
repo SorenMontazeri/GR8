@@ -14,7 +14,6 @@ def default_settings():
         "movement_tracker_type_threshhold": 1,
         "movement_samplerate": 1,
         "movement_samplerate_value": 0,
-        
     }
 
 def save_settings(settings):
@@ -32,3 +31,6 @@ def load_settings():
     f.close()
     settings.update(saved)
     return settings
+
+def normalized_settings_json(settings: dict) -> str:
+    return json.dumps(settings, sort_keys=True, separators=(",", ":"))

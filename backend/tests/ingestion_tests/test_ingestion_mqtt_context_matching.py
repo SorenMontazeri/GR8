@@ -117,14 +117,14 @@ class CameraContextMatchingTests(unittest.TestCase):
     def _make_camera(self) -> Camera:
         cam = Camera.__new__(Camera)
         cam.camera_id = "cam-ctx"
-        cam.frame_buffer = FrameRingBuffer(max_frames=50, max_bytes=100000)
+        cam.hot_buffer = FrameRingBuffer(max_frames=50, max_bytes=100000)
         cam.mqtt_buffer = MqttEventRingBuffer(max_events=50, max_bytes=100000)
         return cam
 
     def test_get_context_at_returns_frame_and_mqtt_event(self) -> None:
         cam = self._make_camera()
         target = datetime.now(timezone.utc)
-        cam.frame_buffer.append(
+        cam.hot_buffer.append(
             BufferedFrame(timestamp=target, jpeg_bytes=b"frame-bytes", width=10, height=10)
         )
         cam.mqtt_buffer.append(
@@ -139,7 +139,7 @@ class CameraContextMatchingTests(unittest.TestCase):
     def test_get_context_at_frame_only_when_no_mqtt_match(self) -> None:
         cam = self._make_camera()
         target = datetime.now(timezone.utc)
-        cam.frame_buffer.append(
+        cam.hot_buffer.append(
             BufferedFrame(timestamp=target, jpeg_bytes=b"frame-bytes", width=10, height=10)
         )
         cam.mqtt_buffer.append(

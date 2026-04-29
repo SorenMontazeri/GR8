@@ -3,8 +3,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import base64
+import csv
 import json
-import os
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
@@ -16,7 +16,10 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
-RECORDINGS_DIR = str(Path(__file__).resolve().parent.parent / "recordings/1")
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+CAMERA_ID = "1"
+RECORDINGS_DIR = BACKEND_DIR / "recordings" / CAMERA_ID
+INDEX_PATH = BACKEND_DIR / "indexes" / f"index-{CAMERA_ID}.csv"
 
 RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
@@ -561,40 +564,39 @@ def save_description_bundle(
 
 
 def image_from_timestamp(t, clip=10):
-    # Söker igenom alla videofiler och kollar på filnamnen. Om filens namn visar att den innehåller det timestamps som söks, så öppna den filen, 
-    # ta ut den framen som söks efter och konvertera den till bas64. 
     local_t = t.astimezone(RECORDINGS_TZ) if t.tzinfo is not None else t.replace(tzinfo=RECORDINGS_TZ)
 
-    if not os.path.isdir(RECORDINGS_DIR):
+    if not INDEX_PATH.exists():
         message = (
-            f"Ingen matchande video: recordings directory does not exist "
-            f"(dir={RECORDINGS_DIR}, timestamp={local_t.isoformat()})"
+            f"Ingen matchande video: index file does not exist "
+            f"(index={INDEX_PATH}, timestamp={local_t.isoformat()})"
         )
         print(f"[database] {message}")
         raise FileNotFoundError(message)
 
-    filenames = sorted(os.listdir(RECORDINGS_DIR))
-    for f in filenames:
-        try:
-            s = datetime.strptime(f, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
-            if s <= local_t < s + timedelta(seconds=clip):
-                p = os.path.join(RECORDINGS_DIR, f)
-                cap = cv2.VideoCapture(p)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int((local_t - s).total_seconds() * cap.get(cv2.CAP_PROP_FPS)))
-                ok, frame = cap.read()
-                cap.release()
-                if not ok:
-                    raise RuntimeError("Kunde inte läsa frame")
+    with INDEX_PATH.open(newline="") as index_file:
+        rows = list(csv.DictReader(index_file))
 
-                _, buffer = cv2.imencode(".jpg", frame)
-                return base64.b64encode(buffer).decode("utf-8")
-        except ValueError:
-            continue
+    for row in rows:
+        start = datetime.fromisoformat(row["segment_start_camera_time"])
+        end = datetime.fromisoformat(row["segment_end_camera_time"])
+        if start <= local_t <= end:
+            video_path = Path(row["file_name"])
+            if not video_path.is_absolute():
+                video_path = RECORDINGS_DIR / video_path
+            cap = cv2.VideoCapture(str(video_path))
+            cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, (local_t - start).total_seconds()) * 1000.0)
+            ok, frame = cap.read()
+            cap.release()
+            if not ok:
+                raise RuntimeError("Kunde inte läsa frame")
 
-    sample_files = ", ".join(filenames[:5]) if filenames else "no files found"
+            _, buffer = cv2.imencode(".jpg", frame)
+            return base64.b64encode(buffer).decode("utf-8")
+
     message = (
-        f"Ingen matchande video for timestamp {local_t.isoformat()} in {RECORDINGS_DIR}. "
-        f"Checked {len(filenames)} file(s). Sample: {sample_files}"
+        f"Ingen matchande video for timestamp {local_t.isoformat()} in {INDEX_PATH}. "
+        f"Checked {len(rows)} index row(s)."
     )
     print(f"[database] {message}")
     raise FileNotFoundError(message)

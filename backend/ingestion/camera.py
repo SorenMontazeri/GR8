@@ -5,7 +5,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 import os
@@ -20,7 +19,6 @@ except ModuleNotFoundError:  # pragma: no cover - optional in thin test envs
 
 
 import cv2
-import imageio_ffmpeg
 import paho.mqtt.client as mqtt
 
 if __package__ in (None, ""):
@@ -28,15 +26,14 @@ if __package__ in (None, ""):
 
 from database.database import save_description_bundle
 from ingestion.buffers.mqtt_event_buffer import BufferedMqttEvent, MqttEventRingBuffer
-from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
-from ingestion.record_ffmpeg import start_recording_ffmpeg, stop_recording
+from ingestion.buffers.rtsp_hot_buffer import BufferedFrame
+from ingestion.gstreamer_recorder import GStreamerRecorder
 
 class Camera:
     def __init__(
         self,
         camera_id: str,
         rtsp_url: str,
-        ffmpeg: str,
         broker_host: str,
         broker_port: int,
         analysis_client=None,
@@ -51,24 +48,14 @@ class Camera:
     ) -> None:
         self.camera_id = camera_id
         self.rtsp_url = rtsp_url
-        self.recording_process = None
+        self.recorder: GStreamerRecorder | None = None
         self.mqtt_client = mqtt.Client()
 
-        self.hot_buffer_seconds = hot_buffer_seconds
-        self.hot_buffer_fps = hot_buffer_fps
-        self.hot_buffer_max_bytes = hot_buffer_max_bytes
-        self.mqtt_buffer_max_events = mqtt_buffer_max_events
-        self.mqtt_buffer_max_bytes = mqtt_buffer_max_bytes
-        self.hot_buffer_jpeg_quality = hot_buffer_jpeg_quality
-        self.hot_buffer_max_width = hot_buffer_max_width
-
-        self.frame_buffer: FrameRingBuffer | None = None
+        self.hot_buffer: Any | None = None
         self.mqtt_buffer = MqttEventRingBuffer(
-            max_events=self.mqtt_buffer_max_events,
-            max_bytes=self.mqtt_buffer_max_bytes,
+            max_events=mqtt_buffer_max_events,
+            max_bytes=mqtt_buffer_max_bytes,
         )
-        self._buffer_stop_event = threading.Event()
-        self._buffer_thread: threading.Thread | None = None
         self.analysis_client = analysis_client
         self._analysis_pool = ThreadPoolExecutor(
             max_workers=10,
@@ -81,20 +68,23 @@ class Camera:
         self._async_loop_ready = threading.Event()
         self.init_async_loop()
 
-        self.init_recording(ffmpeg, segment_seconds)
-        self.init_buffer()
+        self.init_recording(segment_seconds)
+        self.init_buffer(
+            seconds=hot_buffer_seconds,
+            fps=hot_buffer_fps,
+            max_bytes=hot_buffer_max_bytes,
+            jpeg_quality=hot_buffer_jpeg_quality,
+            max_width=hot_buffer_max_width,
+        )
         self.init_mqtt(broker_host, broker_port)
 
-        # desync
-        self.recording_start_time = None
-        self.first_message = True
-        self.desync = None
-
-    def init_recording(self, ffmpeg: str, segment_seconds: int) -> None:
-
-        self.recording_process = start_recording_ffmpeg(
-            ffmpeg, self.rtsp_url, self.camera_id, segment_seconds
+    def init_recording(self, segment_seconds: int) -> None:
+        self.recorder = GStreamerRecorder(
+            rtsp_url=self.rtsp_url,
+            camera_id=self.camera_id,
+            segment_seconds=segment_seconds,
         )
+        self.recorder.start()
 
     def init_mqtt(self, broker_host: str, broker_port: int) -> None:
         self.mqtt_client.connect(broker_host, broker_port, 60)
@@ -133,7 +123,6 @@ class Camera:
         )
 
     def on_message(self, client, userdata, msg) -> None:
-        received_at = datetime.now(timezone.utc)
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
             data = json.loads(payload)
@@ -144,9 +133,9 @@ class Camera:
             print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
             return
 
-        self._analysis_pool.submit(self._process_message, received_at, data)
+        self._analysis_pool.submit(self._process_message, data)
 
-    def _process_message(self, received_at: datetime, data: Dict[str, Any]) -> None:
+    def _process_message(self, data: Dict[str, Any]) -> None:
         # Get necessary info
         package_start_time = self._extract_event_timestamp(data)
         package_end_time = self._extract_event_end_time(data)
@@ -154,11 +143,8 @@ class Camera:
             print(f"[camera:{self.camera_id}] missing mqtt timestamps")
             return
 
-        delta_time = received_at - package_end_time
-        print(delta_time)
-
-        target_start_time = package_start_time + delta_time
-        target_end_time = package_end_time + delta_time
+        target_start_time = package_start_time
+        target_end_time = package_end_time
 
         image = data.get("image")
         snapshot_b64 = image.get("data") if isinstance(image, dict) else None
@@ -169,8 +155,8 @@ class Camera:
 
         matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
         if matched_full_frame is None:
-                print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
-                return
+            print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
+            return
         full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
 
         selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
@@ -252,81 +238,36 @@ class Camera:
 
         return None
 
-    def init_buffer(self) -> None:
-        max_frames = self.hot_buffer_seconds * self.hot_buffer_fps
-        self.frame_buffer = FrameRingBuffer(
-            max_frames=max_frames,
-            max_bytes=self.hot_buffer_max_bytes,
+    def init_buffer(
+        self,
+        seconds: int,
+        fps: int,
+        max_bytes: int,
+        jpeg_quality: int,
+        max_width: int,
+    ) -> None:
+        from ingestion.gstreamer_hot_buffer import GStreamerHotBuffer
+
+        self.hot_buffer = GStreamerHotBuffer(
+            rtsp_url=self.rtsp_url,
+            camera_id=self.camera_id,
+            seconds=seconds,
+            fps=fps,
+            max_bytes=max_bytes,
+            jpeg_quality=jpeg_quality,
+            max_width=max_width,
         )
-        self._buffer_stop_event.clear()
-        self._buffer_thread = threading.Thread(
-            target=self._buffer_loop,
-            name=f"camera-{self.camera_id}-hot-buffer",
-            daemon=True,
-        )
-        self._buffer_thread.start()
-
-    def _buffer_loop(self) -> None:
-        frame_interval = 1.0 / float(self.hot_buffer_fps)
-        encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.hot_buffer_jpeg_quality)]
-
-        while not self._buffer_stop_event.is_set():
-            capture = cv2.VideoCapture(self.rtsp_url)
-            if not capture.isOpened():
-                print(f"[camera:{self.camera_id}][buffer] RTSP open failed, retrying...")
-                time.sleep(1.0)
-                continue
-
-            next_capture_ts = time.monotonic()
-
-            while not self._buffer_stop_event.is_set():
-                ok, frame = capture.read()
-                if not ok or frame is None:
-                    print(f"[camera:{self.camera_id}][buffer] RTSP read failed, reconnecting...")
-                    break
-
-                now = time.monotonic()
-                if now < next_capture_ts:
-                    continue
-                next_capture_ts = now + frame_interval
-
-                h, w = frame.shape[:2]
-                if self.hot_buffer_max_width > 0 and w > self.hot_buffer_max_width:
-                    new_h = int(h * (self.hot_buffer_max_width / float(w)))
-                    frame = cv2.resize(
-                        frame,
-                        (self.hot_buffer_max_width, new_h),
-                        interpolation=cv2.INTER_AREA,
-                    )
-                    h, w = frame.shape[:2]
-
-                enc_ok, encoded = cv2.imencode(".jpg", frame, encode_params)
-                if not enc_ok:
-                    continue
-
-                packet = BufferedFrame(
-                    timestamp=datetime.now(timezone.utc),
-                    jpeg_bytes=encoded.tobytes(),
-                    width=w,
-                    height=h,
-                )
-                if self.frame_buffer is not None:
-                    self.frame_buffer.append(packet)
-
-            capture.release()
-            if not self._buffer_stop_event.is_set():
-                time.sleep(0.3)
+        self.hot_buffer.start()
 
     def get_hot_buffer_frames(self, seconds: int | None = None) -> List[BufferedFrame]:
-        if self.frame_buffer is None:
+        if self.hot_buffer is None:
             return []
-        window = seconds if seconds is not None else self.hot_buffer_seconds
-        return self.frame_buffer.latest(window)
+        return self.hot_buffer.latest(seconds)
 
     def get_hot_buffer_frame_at(self, target_timestamp: datetime) -> BufferedFrame | None:
-        if self.frame_buffer is None:
+        if self.hot_buffer is None:
             return None
-        return self.frame_buffer.search_frame(target_timestamp)
+        return self.hot_buffer.frame_at(target_timestamp)
 
     def get_mqtt_event_at(
         self,
@@ -357,7 +298,7 @@ class Camera:
         def encode_frame(frame: BufferedFrame) -> str:
             return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
 
-        if self.frame_buffer is None:
+        if self.hot_buffer is None:
             return [], []
 
         duration = (end_time - start_time).total_seconds()
@@ -384,8 +325,6 @@ class Camera:
         return selected_frames, selected_timestamps
     
     def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
-        
-
         if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
             return [], []
 
@@ -402,17 +341,13 @@ class Camera:
         def encode_frame(frame: BufferedFrame) -> str:
             return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
 
-        if self.frame_buffer is None:
+        if self.hot_buffer is None:
             return [], []
 
-        with self.frame_buffer._lock:
-            buffer_frames = [
-                frame for frame in self.frame_buffer._frames if start_time <= frame.timestamp <= end_time
-            ]
+        buffer_frames = self.hot_buffer.frames_between(start_time, end_time)
 
         if not buffer_frames:
             return [], []
-        
 
         selected_frames = [encode_frame(buffer_frames[0])]
         selected_timestamps = [buffer_frames[0].timestamp]
@@ -430,14 +365,14 @@ class Camera:
         return selected_frames, selected_timestamps
 
     def hot_buffer_stats(self) -> Dict[str, int]:
-        if self.frame_buffer is None:
+        if self.hot_buffer is None:
             return {"frames": 0, "bytes": 0, "max_frames": 0, "max_bytes": 0}
-        return self.frame_buffer.stats()
+        return self.hot_buffer.stats()
 
     def mqtt_buffer_stats(self) -> Dict[str, int]:
         return self.mqtt_buffer.stats()
 
-#för testning av RTSP data (frames)
+    # For testing RTSP frames.
     def dump_latest_hot_buffer_frame(self, output_path: str = "debug_latest.jpg") -> bool:
         frames = self.get_hot_buffer_frames(5)
         if not frames:
@@ -456,21 +391,20 @@ class Camera:
         return True
 
     def stop_recording(self) -> None:
-        self._buffer_stop_event.set()
-        if self._buffer_thread is not None:
-            self._buffer_thread.join(timeout=2.0)
-            self._buffer_thread = None
+        if self.hot_buffer is not None:
+            self.hot_buffer.stop()
+            self.hot_buffer = None
 
         self.mqtt_client.loop_stop()
         self.mqtt_client.disconnect()
         self._analysis_pool.shutdown(wait=True)
 
-        stop_recording(self.recording_process)
-        self.recording_process = None
+        if self.recorder is not None:
+            self.recorder.stop()
+            self.recorder = None
 
 
 def main() -> None:
-    from analysis.sync_prisma import LLMClientSync
     from analysis.async_prisma import LLMClient
 
     load_dotenv()
@@ -478,7 +412,6 @@ def main() -> None:
     username = "student"
     password = "student"
     rtsp_url = f"rtsp://{username}:{password}@{camera_ip}/axis-media/media.amp"
-    ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
 
     broker_host = "10.255.255.1"
     broker_port = 1883
@@ -489,13 +422,13 @@ def main() -> None:
 
     llm = LLMClient(endpoint, api_key, model)
 
-    camera = Camera("1", rtsp_url, ffmpeg, broker_host, broker_port,analysis_client=llm, segment_seconds=10)
-    
-    time.sleep(60)
-    #print("Hot buffer stats:", camera.hot_buffer_stats())
-    #camera.dump_latest_hot_buffer_frame("debug_latest.jpg")
-
-    camera.stop_recording()
+    camera = Camera("1", rtsp_url, broker_host, broker_port, analysis_client=llm, segment_seconds=10)
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        camera.stop_recording()
 
 
 if __name__ == "__main__":

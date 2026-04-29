@@ -197,7 +197,7 @@ class CameraOnMessageTests(unittest.TestCase):
     def _make_camera(self) -> Camera:
         cam = Camera.__new__(Camera)
         cam.camera_id = "cam-1"
-        cam.frame_buffer = FrameRingBuffer(max_frames=10, max_bytes=10_000)
+        cam.hot_buffer = FrameRingBuffer(max_frames=10, max_bytes=10_000)
         from ingestion.buffers.mqtt_event_buffer import MqttEventRingBuffer
         cam.mqtt_buffer = MqttEventRingBuffer(max_events=100, max_bytes=100_000)
         cam.analysis_client = _SpyAnalysisClient()
@@ -208,13 +208,10 @@ class CameraOnMessageTests(unittest.TestCase):
         parsed = cam._extract_event_timestamp({"start_time": "2026-03-24T12:00:00Z"})
         self.assertEqual(parsed, datetime(2026, 3, 24, 12, 0, tzinfo=timezone.utc))
 
-    def test_extract_event_timestamp_falls_back_to_now_when_invalid(self) -> None:
+    def test_extract_event_timestamp_returns_none_when_invalid(self) -> None:
         cam = self._make_camera()
-        before = datetime.now(timezone.utc)
         parsed = cam._extract_event_timestamp({"start_time": "not-a-timestamp"})
-        after = datetime.now(timezone.utc)
-        self.assertGreaterEqual(parsed, before)
-        self.assertLessEqual(parsed, after)
+        self.assertIsNone(parsed)
 
     def test_on_message_invalid_json_is_handled(self) -> None:
         cam = self._make_camera()

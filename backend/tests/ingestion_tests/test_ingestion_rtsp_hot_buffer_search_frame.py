@@ -63,10 +63,6 @@ class RtspHotBufferSearchFrameTest(unittest.TestCase):
             self.skipTest("cv2 is required for RTSP hot buffer integration test.")
         if importlib.util.find_spec("paho") is None:
             self.skipTest("paho-mqtt is required for Camera import in this test.")
-        if importlib.util.find_spec("imageio_ffmpeg") is None:
-            self.skipTest("imageio-ffmpeg is required for recording verification in this test.")
-
-        import imageio_ffmpeg
         from ingestion.camera import Camera
 
         class _NoMqttCamera(Camera):
@@ -83,14 +79,12 @@ class RtspHotBufferSearchFrameTest(unittest.TestCase):
         nearest_file = Path(os.getenv("RTSP_DEBUG_NEAREST_FILE", "debug_nearest_test.jpg"))
         latest_file = Path(os.getenv("RTSP_DEBUG_LATEST_FILE", "debug_latest_test.jpg"))
         camera_id = os.getenv("RTSP_CAMERA_ID", "1")
-        ffmpeg_path = os.getenv("FFMPEG_PATH") or imageio_ffmpeg.get_ffmpeg_exe()
         recordings_dir = Path("recordings") / camera_id
 
         # Kamera startas med recording + hot buffer, men utan MQTT.
         camera = _NoMqttCamera(
             camera_id=camera_id,
             rtsp_url=rtsp_url,
-            ffmpeg=ffmpeg_path,
             broker_host="127.0.0.1",
             broker_port=1883,
             segment_seconds=segment_seconds,
@@ -107,11 +101,7 @@ class RtspHotBufferSearchFrameTest(unittest.TestCase):
 
             # 2) Sök närmaste frame för aktuell timestamp.
             target_ts = datetime.now(timezone.utc)
-            nearest = (
-                camera.frame_buffer.search_frame(target_ts)
-                if camera.frame_buffer is not None
-                else None
-            )
+            nearest = camera.get_hot_buffer_frame_at(target_ts)
             self.assertIsNotNone(nearest, "search_frame returned None.")
 
             assert nearest is not None

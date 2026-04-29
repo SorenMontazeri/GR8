@@ -16,8 +16,6 @@ import argparse
 import os
 import time
 
-import imageio_ffmpeg
-
 from ingestion.camera import Camera
 
 
@@ -79,13 +77,11 @@ def main() -> int:
             print("[ingestion-runner] no API key found, falling back to StubAnalysisClient")
             analysis_client = StubAnalysisClient()
 
-    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
     camera_class = NoMqttCamera if args.no_mqtt else Camera
 
     camera = camera_class(
         camera_id=str(args.camera_id),
         rtsp_url=args.rtsp_url,
-        ffmpeg=ffmpeg_path,
         broker_host=args.broker_host,
         broker_port=args.broker_port,
         analysis_client=analysis_client,

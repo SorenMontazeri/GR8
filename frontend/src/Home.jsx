@@ -103,7 +103,7 @@ function Home({ onAnalysClick, data, setData }) {
             <>
               <div className="App flex flex-row bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
                 <div className="App flex flex-col">
-                  <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
+                  <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame</h2>
                   <FullFrameImage searchString={data.submittedString} eventData={data.eventData?.full_frame} />
                   <StarRating
                     value={data.ratings.full_frame}
@@ -114,7 +114,7 @@ function Home({ onAnalysClick, data, setData }) {
                 </div> 
 
                 <div className="App flex flex-col">
-                  <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot Image</h2>
+                  <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot</h2>
                   <Snapshot searchString={data.submittedString} eventData={data.eventData?.snapshot} />
                   <StarRating
                     value={data.ratings.snapshot}
@@ -126,7 +126,7 @@ function Home({ onAnalysClick, data, setData }) {
               </div> 
               
               <div className="App flex flex-col bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
-                <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens Uniform</h2>
+                <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens tidsintervall</h2>
                 <ImageCarousel searchString={data.submittedString} images={data.eventData?.uniform?.images || []} />
                 <Seq1 searchString={data.submittedString} eventData={data.eventData?.uniform} />
                 <StarRating
@@ -138,7 +138,7 @@ function Home({ onAnalysClick, data, setData }) {
                 
                 <hr className="border-[#555] my-4" />
 
-                <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens 2 Varied</h2>
+                <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens rörelsedetektion</h2>
                 <ImageCarousel searchString={data.submittedString} images={data.eventData?.varied?.images || []} />
                 <Seq2 searchString={data.submittedString} eventData={data.eventData?.varied} />
                 <StarRating
@@ -157,3 +157,6 @@ function Home({ onAnalysClick, data, setData }) {
 }
 
 export default Home;
+
+
+

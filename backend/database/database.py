@@ -8,6 +8,7 @@ import os
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+#from . import settings_editor
 import settings_editor
 
 import sqlite3

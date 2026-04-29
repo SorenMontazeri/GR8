@@ -1,3 +1,5 @@
+
+
 import { useEffect, useState } from "react";
 import SearchButton from "./components/Searchbutton";
 import TextSearch from "./components/TextSearch.jsx";
@@ -9,54 +11,39 @@ import ImageCarousel from "./Features/ImageCarousel";
 import StarRating from "./components/StarRating";
 import SettingsPanel from "./components/Settings.jsx";
 
-function Home({ onAnalysClick }) {
-  const [searchString, setString] = useState("");
-  const [submittedString, setSubmittedString] = useState(null);
-  const [eventData, setEventData] = useState(null);
+function Home({ onAnalysClick, data, setData }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [ratings, setRatings] = useState({
-  full_frame: 0,
-  snapshot: 0,
-  uniform: 0,
-  varied: 0,
-});
 
+  const updateData = (newData) => {
+    setData((prev) => ({ ...prev, ...newData }));
+  };
+
+  function handleRatingChange(imageType, newRating) {
+    updateData({
+      ratings: {
+        ...data.ratings,
+        [imageType]: newRating,
+      }
+    });
+  }
+
+  // Denna körs när submittedString ändras (vid ny sökning)
   useEffect(() => {
-    console.log("Search string updated:", eventData);
-  }, [eventData]);
-    
-
-
-function handleRatingChange(imageType, newRating) {
-  setRatings((prev) => ({
-    ...prev,
-    [imageType]: newRating,
-  }));
-}
-
-
-  useEffect(() => {
-    if (!submittedString) {
-      setEventData(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
+    if (!data.submittedString) return;
 
     async function loadEvent() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`http://localhost:8000/api/event/${submittedString}`);
+        const res = await fetch(`http://localhost:8000/api/event/${data.submittedString}`);
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
-        const data = await res.json();
-        setEventData(data);
-        console.log("Fetched event data:", data);
+        const result = await res.json();
+        updateData({ eventData: result });
       } catch (err) {
-        setEventData(null);
+        updateData({ eventData: null });
         setError(err.message);
       } finally {
         setLoading(false);
@@ -64,88 +51,108 @@ function handleRatingChange(imageType, newRating) {
     }
 
     loadEvent();
-  }, [submittedString]);
+  }, [data.submittedString]);
 
+  // HÄR HÄNDER NOLLSTÄLLNINGEN VID NY SÖKNING
   function handleSearch() {
-    setSubmittedString(searchString.trim());
+    const cleanSearch = data.searchString.trim();
+    if (!cleanSearch) return;
+
+    updateData({ 
+      submittedString: cleanSearch,
+      eventData: null, // Rensa gamla bilder medan vi laddar nya
+      ratings: {       // Nollställ stjärnorna på Home-sidan
+        full_frame: 0,
+        snapshot: 0,
+        uniform: 0,
+        varied: 0,
+      }
+    });
   }
 
-  const groupId = eventData?.description_group?.id;
-  console.log("AKTUELLT GROUP ID:", groupId);
+  const groupId = data.eventData?.description_group?.id;
+
   return (
-    
     <div className="min-h-screen w-screen flex bg-[#49564F] text-white">
-    <SettingsPanel />
+      <SettingsPanel />
 
-        {/* resten */}
+      <main className="flex-1 relative bg-[#49564F]">
+        <div className="App flex flex-col items-center justify-center min-h-screen gap-4 bg-[#49564F]">
+          <button 
+            onClick={onAnalysClick}
+            type="button" 
+            className="absolute top-8 right-8 bg-[#FFCC00] hover:bg-[#E6AD00] text-black py-2 px-4 rounded transition-colors"
+          >
+            Analys
+          </button>
 
-<main className="flex-1 relative bg-[#49564F]">
-    <div className="App flex flex-col items-center justify-center min-h-screen gap-4 bg-[#49564F]">
-      <button 
-        onClick={onAnalysClick}
-        type="button" 
-        className="absolute top-8 right-8 bg-[#FFCC00] hover:bg-[#E6AD00] text-black py-2 px-4 rounded transition-colors"
-      >Analys
-      </button>
-
-      <h1 className="text-3xl font-bold text-[#FFCC00]">GR8</h1>
-      <TextSearch searchString={searchString} setString={setString} />
-
-      <SearchButton id={searchString} onClick={handleSearch} />
-      {error ? <p className="text-red-400">Failed to load backend data: {error}</p> : null}
-      {loading ? <p className="text-[#FFCC00]">Loading results...</p> : null}
-      <div className="App flex flex-row bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
-                <div className="App flex flex-col">
-                    <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
-                          <FullFrameImage searchString={submittedString} eventData={eventData?.full_frame} />
-                         {/* <LikeButton groupId={groupId} imageType="full_frame" />} */}
-                         <StarRating
-                            value={ratings.full_frame}
-                            groupId={groupId}
-                            imageType="fullframe"
-            onChange={(newRating) => handleRatingChange("full_frame", newRating)}
+          <h1 className="text-3xl font-bold text-[#FFCC00]">GR8</h1>
+          
+          <TextSearch 
+            searchString={data.searchString} 
+            setString={(val) => updateData({ searchString: val })} 
           />
-                </div> 
+
+          <SearchButton id={data.searchString} onClick={handleSearch} />
+          
+          {error ? <p className="text-red-400">Failed to load: {error}</p> : null}
+          {loading ? <p className="text-[#FFCC00]">Loading new results...</p> : null}
+          
+          {/* Vi visar bara boxarna om vi faktiskt har data, annars ser det tomt ut under laddning */}
+          {data.eventData && (
+            <>
+              <div className="App flex flex-row bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
                 <div className="App flex flex-col">
-                    <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot Image</h2>
-                    <Snapshot searchString={submittedString} eventData={eventData?.snapshot} />
-                    <StarRating
-            value={ratings.snapshot}
-            groupId={groupId}
-            imageType="snapshot"
-            onChange={(newRating) => handleRatingChange("snapshot", newRating)}
-          />
+                  <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Full Frame Image</h2>
+                  <FullFrameImage searchString={data.submittedString} eventData={data.eventData?.full_frame} />
+                  <StarRating
+                    value={data.ratings.full_frame}
+                    groupId={groupId}
+                    imageType="fullframe"
+                    onChange={(newRating) => handleRatingChange("full_frame", newRating)}
+                  />
                 </div> 
 
-        </div> 
-        
-        <div className="App flex flex-col bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
-        <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens  Uniform</h2>
-        
-        <ImageCarousel searchString={submittedString} images={eventData?.uniform?.images || []} />
-        <Seq1 searchString={submittedString} eventData={eventData?.uniform} />
-<StarRating
-            value={ratings.uniform}
-            groupId={groupId}
-            imageType="uniform"
-            onChange={(newRating) => handleRatingChange("uniform", newRating)}
-          />
-        <hr className="border-[#555] my-4" /> {/* En linje för att dela upp */}
+                <div className="App flex flex-col">
+                  <h2 className="text-xl font-bold text-[#FFCC00] mb-2">Snapshot Image</h2>
+                  <Snapshot searchString={data.submittedString} eventData={data.eventData?.snapshot} />
+                  <StarRating
+                    value={data.ratings.snapshot}
+                    groupId={groupId}
+                    imageType="snapshot"
+                    onChange={(newRating) => handleRatingChange("snapshot", newRating)}
+                  />
+                </div> 
+              </div> 
+              
+              <div className="App flex flex-col bg-[#49564F] p-4 rounded-lg gap-4 border-4 border-[#FFCC00]">
+                <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens Uniform</h2>
+                <ImageCarousel searchString={data.submittedString} images={data.eventData?.uniform?.images || []} />
+                <Seq1 searchString={data.submittedString} eventData={data.eventData?.uniform} />
+                <StarRating
+                  value={data.ratings.uniform}
+                  groupId={groupId}
+                  imageType="uniform"
+                  onChange={(newRating) => handleRatingChange("uniform", newRating)}
+                />
+                
+                <hr className="border-[#555] my-4" />
 
-        <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens 2 Varied</h2>
-        <ImageCarousel searchString={submittedString} images={eventData?.varied?.images || []} />
-        <Seq2 searchString={submittedString} eventData={eventData?.varied} />
-<StarRating
-            value={ratings.varied}
-            groupId={groupId}
-            imageType="varied"
-            onChange={(newRating) => handleRatingChange("varied", newRating)}
-          />        </div> 
-
+                <h2 className="text-xl font-bold text-[#FFCC00] text-center">Sekvens 2 Varied</h2>
+                <ImageCarousel searchString={data.submittedString} images={data.eventData?.varied?.images || []} />
+                <Seq2 searchString={data.submittedString} eventData={data.eventData?.varied} />
+                <StarRating
+                  value={data.ratings.varied}
+                  groupId={groupId}
+                  imageType="varied"
+                  onChange={(newRating) => handleRatingChange("varied", newRating)}
+                />
+              </div>
+            </>
+          )}
+        </div>
+      </main>
     </div>
-    </main>
-    </div>
-
   );
 }
 

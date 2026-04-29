@@ -132,94 +132,131 @@ class Camera:
             self.analysis_client.query_description_open(selection_movement_images),
         )
 
-    def on_message(self, client, userdata, msg) -> None:
+    def _parse_event(self, msg) -> dict | None:
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
             data = json.loads(payload)
         except Exception as e:
             print(f"[camera:{self.camera_id}][mqtt] invalid json: {e}")
-            return
+            return 
+
         if not isinstance(data, dict):
             print(f"[camera:{self.camera_id}][mqtt] payload is not a JSON object")
-            return
-                
-                
-        # ------------------------------------------------------------------
-        # Extract event timing information
-        # ------------------------------------------------------------------
-        target_start_time = self._extract_event_timestamp(data)
-        target_end_time = self._extract_event_end_time(data)
+            return 
 
-        # ------------------------------------------------------------------
-        # Extract snapshot image from MQTT payload
-        # ------------------------------------------------------------------
         image = data.get("image")
         snapshot_b64 = image.get("data") if isinstance(image, dict) else None
+
         if snapshot_b64 is None:
             print(f"[camera:{self.camera_id}] missing mqtt snapshot")
-            return
+            return 
 
-        # ------------------------------------------------------------------
-        # Retrieve full frame from hot buffer at event start time
-        # ------------------------------------------------------------------
-        matched_full_frame = self.get_hot_buffer_frame_at(target_start_time)
+        return {
+            "data": data,
+            "snapshot_b64": snapshot_b64,
+            "start_time": self._extract_event_timestamp(data),
+            "end_time": self._extract_event_end_time(data),
+        }
+    
+    def _build_context(self, event: dict) -> dict | None:
+        start_time = event["start_time"]
+        end_time = event["end_time"]
+
+        matched_full_frame = self.get_hot_buffer_frame_at(start_time)
         if matched_full_frame is None:
-                print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
-                return
+            print(f"[camera:{self.camera_id}] no matching frame in hot buffer")
+            return None
+
         full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
 
-        selection_uniform_images, selection_uniform_timestamps =  frame_selection_uniform(self.frame_buffer,target_start_time, target_end_time)
-        selection_movement_images, selection_movement_timestamps =  frame_selection_movement(self.frame_buffer, target_start_time, target_end_time, 90)
+        selection_uniform_images, selection_uniform_timestamps =  frame_selection_uniform(
+            self.frame_buffer, start_time, end_time
+        )
 
-        # Temporary solution for short consolodated, might have to prune short consolodated
-        if not selection_uniform_images and not selection_uniform_timestamps:
+        selection_movement_images, selection_movement_timestamps = frame_selection_movement(
+            self.frame_buffer, start_time, end_time, 90
+        )
+
+        # fallback logic (preserve behavior)
+        if not selection_uniform_images:
             selection_uniform_images = [full_frame_b64]
-            selection_uniform_timestamps = [target_start_time]
+            selection_uniform_timestamps = [start_time]
 
-        if not selection_movement_images and not selection_movement_timestamps:
+        if not selection_movement_images:
             selection_movement_images = [full_frame_b64]
-            selection_movement_timestamps = [target_start_time]
+            selection_movement_timestamps = [start_time]
 
-
+        return {
+            "matched_full_frame": matched_full_frame,
+            "full_frame_b64": full_frame_b64,
+            "selection_uniform_images": selection_uniform_images,
+            "selection_uniform_timestamps": selection_uniform_timestamps,
+            "selection_movement_images": selection_movement_images,
+            "selection_movement_timestamps": selection_movement_timestamps,
+        }
+    
+    def _run_analysis_sync(self, context: dict) -> dict | None:
         try:
             future = asyncio.run_coroutine_threadsafe(
                 self._run_analysis(
-                    snapshot_b64=snapshot_b64,
-                    full_frame_b64=full_frame_b64,
-                    selection_uniform_images=selection_uniform_images,
-                    selection_movement_images=selection_movement_images,
+                    snapshot_b64=context["snapshot_b64"],
+                    full_frame_b64=context["full_frame_b64"],
+                    selection_uniform_images=context["selection_uniform_images"],
+                    selection_movement_images=context["selection_movement_images"],
                 ),
                 self._async_loop,
             )
-            response_snapshot, response_full_frame, response_selection_uniform, response_selection_movement = future.result(timeout=60)
+
+            responses = future.result(timeout=60)
+
+            return {
+                "snapshot": responses[0],
+                "full_frame": responses[1],
+                "selection_uniform": responses[2],
+                "selection_movement": responses[3],
+            }
 
         except Exception as exc:
             print(f"[camera:{self.camera_id}] analysis failed: {exc}")
-            return
+            return None
         
-        print(response_snapshot)
-        print(response_full_frame)
-        print(response_selection_uniform)
-        print(response_selection_movement)
-
+    def _save_result(self, event: dict, context: dict, result: dict) -> None:
         try:
             save_description_bundle(
-                target_start_time,
-                target_end_time,
+                event["start_time"],
+                event["end_time"],
                 datetime.now(timezone.utc),
-                response_selection_uniform["description"],
-                response_selection_movement["description"],
-                response_snapshot["description"],
-                response_full_frame["description"],
-                selection_uniform_timestamps,
-                selection_movement_timestamps,
-                target_start_time,
-                matched_full_frame.timestamp,
-                snapshot_b64,
+                result["selection_uniform"]["description"],
+                result["selection_movement"]["description"],
+                result["snapshot"]["description"],
+                result["full_frame"]["description"],
+                context["selection_uniform_timestamps"],
+                context["selection_movement_timestamps"],
+                event["start_time"],
+                context["matched_frame"].timestamp,
+                event["snapshot_b64"],
             )
         except Exception as exc:
             print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
+    
+    def on_message(self, client, userdata, msg) -> None:
+        event = self._parse_event(msg)
+        if not event:
+            return
 
+        context = self._build_context(event)
+        if not context:
+            return
+
+        # carry snapshot into context for analysis
+        context["snapshot_b64"] = event["snapshot_b64"]
+
+        result = self._run_analysis_sync(context)
+        if not result:
+            return
+
+        self._save_result(event, context, result)
+        
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime:
         start_time = payload.get("start_time")

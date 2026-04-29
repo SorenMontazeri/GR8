@@ -14,6 +14,7 @@ backend/analysis/test.webp
 backend/analysis/test1.json
 backend/analysis/test2.json
 **.codex
+backend/indexes/
 
 # Created by https://www.toptal.com/developers/gitignore/api/node
 # Edit at https://www.toptal.com/developers/gitignore?templates=node

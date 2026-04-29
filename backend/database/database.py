@@ -337,6 +337,7 @@ def create_database() -> None:
             sequence_description_varied_id INTEGER,
             snapshot_description_id INTEGER,
             full_frame_description_id INTEGER,
+            settings_json TEXT,
             FOREIGN KEY (sequence_description_uniform_id)
                 REFERENCES sequence_description_uniform(id),
             FOREIGN KEY (sequence_description_varied_id)
@@ -579,9 +580,11 @@ def save_description_group(
     sequence_description_varied_id: int | None = None,
     snapshot_description_id: int | None = None,
     full_frame_description_id: int | None = None,
+    settings: dict | None = None,
 ) -> int:
     create_database()
-
+    if settings is None:
+        settings = load_settings()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -589,8 +592,8 @@ def save_description_group(
         INSERT INTO description_group (
             timestamp_start, timestamp_end,
             sequence_description_uniform_id, sequence_description_varied_id,
-            snapshot_description_id, full_frame_description_id
-        ) VALUES (?, ?, ?, ?, ?, ?);
+            snapshot_description_id, full_frame_description_id, settings_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
@@ -599,6 +602,7 @@ def save_description_group(
             sequence_description_varied_id,
             snapshot_description_id,
             full_frame_description_id,
+            settings_editor.normalized_settings_json(settings)
         ),
     )
     conn.commit()
@@ -668,7 +672,7 @@ def save_description_bundle(
         sequence_description_uniform_id=uniform_id,
         sequence_description_varied_id=varied_id,
         snapshot_description_id=snapshot_id,
-        full_frame_description_id=full_frame_id,
+        full_frame_description_id=full_frame_id, 
     )
 
     return {
@@ -767,6 +771,7 @@ def _images_from_timestamps(timestamps):
 
 
 def find_best_event(query):
+    current_settings = settings_editor.normalized_settings_json(load_settings())
     query_embedding = embed(query)
     create_database()
     conn = sqlite3.connect(DB_PATH)
@@ -794,7 +799,9 @@ def find_best_event(query):
         LEFT JOIN sequence_description_varied v ON v.id = dg.sequence_description_varied_id
         LEFT JOIN snapshot_description s ON s.id = dg.snapshot_description_id
         LEFT JOIN full_frame_description f ON f.id = dg.full_frame_description_id
-        """
+        WHERE dg.settings_json= ?
+        """,
+        (current_settings,)
     )
 
     rows = cur.fetchall()
@@ -851,7 +858,7 @@ def seed_test_data():
         timestamp_end=event_end,
         created_at=base_video_time,
         uniform_llm_description="En person går genom rummet i jämn takt.",
-        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet.",
+        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet1.",
         snapshot_llm_description="En person står nära dörröppningen.",
         full_frame_llm_description="Rummet är synligt i helbild med en person som passerar genom scenen.",
         uniform_timestamps=[event_start, event_end],

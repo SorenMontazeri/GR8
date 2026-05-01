@@ -2,12 +2,22 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime, timedelta
+import json
 from typing import List, Tuple
 
+from anyio import Path
 import cv2
 import numpy as np
 
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
+
+
+def load_settings():
+    settings_path = (
+        Path(__file__).resolve().parent.parent / "database" / "settings.json"
+    )
+    with open(settings_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def encode_frame(frame: BufferedFrame) -> str:
@@ -25,7 +35,6 @@ def frame_selection_uniform(
     """
     if frame_buffer is None or end_time < start_time:
         return [], []
-
     duration = (end_time - start_time).total_seconds()
     frame_count = 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3)))
 
@@ -72,7 +81,8 @@ def _thumbnail(frame: BufferedFrame) -> np.ndarray:
 
 
 def _changed_pixel_ratio(left: np.ndarray, right: np.ndarray) -> float:
-    pixel_threshold = 12
+    settings = load_settings()
+    pixel_threshold = settings.get("movement_tracker_pixel_threshold", 30)
     diff = cv2.absdiff(left, right)
     return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
 

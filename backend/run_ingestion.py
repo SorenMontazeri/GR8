@@ -55,6 +55,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--stub-analysis", action="store_true", help="Use local stub analysis client.")
     parser.add_argument("--no-analysis", action="store_true", help="Disable analysis entirely.")
     parser.add_argument("--no-mqtt", action="store_true", help="Disable MQTT and only run RTSP + recording + hotbuffer.")
+    parser.add_argument("--no-recording", action="store_true", help="Disable RTSP segment recording and only run hotbuffer + MQTT.")
+    parser.add_argument("--no-onvif-replay-ext", action="store_true", help="Do not append onvifreplayext=1 to the hotbuffer RTSP URL.")
+    parser.add_argument("--raw-events-output", help="Path to JSONL file where live MQTT events are stored for replay.")
+    parser.add_argument(
+        "--hot-buffer-backend",
+        choices=["opencv", "gstreamer"],
+        default="gstreamer",
+        help="RTSP reader used for the live hot buffer.",
+    )
     return parser
 
 
@@ -86,12 +95,20 @@ def main() -> int:
         broker_port=args.broker_port,
         analysis_client=analysis_client,
         segment_seconds=args.segment_seconds,
+        enable_recording=not args.no_recording,
+        use_onvif_replay_ext=not args.no_onvif_replay_ext,
+        hot_buffer_backend=args.hot_buffer_backend,
+        raw_events_output_path=args.raw_events_output,
     )
 
     print(f"[ingestion-runner] started for camera_id={args.camera_id}")
     print(f"[ingestion-runner] RTSP={args.rtsp_url}")
+    print(f"[ingestion-runner] hot-buffer backend={args.hot_buffer_backend}")
+    if args.hot_buffer_backend == "opencv":
+        print("[ingestion-runner] warning: opencv hot-buffer uses local machine time, not camera time")
     if not args.no_mqtt:
         print(f"[ingestion-runner] MQTT={args.broker_host}:{args.broker_port} topic=camera/{args.camera_id}")
+    print(f"[ingestion-runner] raw events file={camera.raw_events_output_path}")
     if args.no_analysis:
         print("[ingestion-runner] analysis disabled")
     elif args.stub_analysis:

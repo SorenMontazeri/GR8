@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import threading
 from pathlib import Path
 
 
@@ -18,6 +19,7 @@ class RtspStreamer:
         self.publish_url = publish_url
         self.loop_forever = loop_forever
         self.process: subprocess.Popen[str] | None = None
+        self._stderr_thread: threading.Thread | None = None
 
     def build_command(self) -> list[str]:
         stream_loop_value = "-1" if self.loop_forever else "0"
@@ -60,10 +62,23 @@ class RtspStreamer:
             self.build_command(),
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
         )
+        if self.process.stderr is not None:
+            self._stderr_thread = threading.Thread(
+                target=self._stream_stderr,
+                name="rtsp-streamer-stderr",
+                daemon=True,
+            )
+            self._stderr_thread.start()
         return self.process
+
+    def _stream_stderr(self) -> None:
+        if self.process is None or self.process.stderr is None:
+            return
+        for line in self.process.stderr:
+            print(f"[rtsp-streamer] {line.rstrip()}")
 
     def wait(self) -> int:
         if self.process is None:
@@ -80,4 +95,5 @@ class RtspStreamer:
             self.process.kill()
             self.process.wait(timeout=5)
         finally:
+            self._stderr_thread = None
             self.process = None

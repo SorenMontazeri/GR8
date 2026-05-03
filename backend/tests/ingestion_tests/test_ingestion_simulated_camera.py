@@ -44,6 +44,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import run_simulated_camera as camera_runner
 from ingestion.simulator.mqtt_replayer import MqttReplayer
 from ingestion.simulator.scenario_loader import load_scenario
 from ingestion.simulator.simulated_camera import SimulatedCamera
@@ -109,6 +110,86 @@ class _FakeLoopingReplayer:
 
 
 class ScenarioLoaderTests(unittest.TestCase):
+    def test_segment_range_parser_accepts_expected_format(self) -> None:
+        self.assertEqual(camera_runner._parse_segment_range("263:277"), (263, 277))
+        self.assertEqual(camera_runner._parse_segment_range(" 7 : 9 "), (7, 9))
+
+    def test_segment_range_parser_rejects_invalid_format(self) -> None:
+        with self.assertRaises(ValueError):
+            camera_runner._parse_segment_range("277-263")
+        with self.assertRaises(ValueError):
+            camera_runner._parse_segment_range("300:200")
+
+    def test_resolve_segment_range_assets_creates_concat_video_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backend_dir = Path(temp_dir)
+            recordings_dir = backend_dir / "recordings" / "1"
+            indexes_dir = backend_dir / "indexes"
+            recordings_dir.mkdir(parents=True)
+            indexes_dir.mkdir(parents=True)
+
+            (recordings_dir / "segment-00263_2026-05-03T21-31-44Z.mp4").write_bytes(b"a")
+            (recordings_dir / "segment-00264_2026-05-03T21-31-54Z.mp4").write_bytes(b"b")
+            (indexes_dir / "index-1.csv").write_text(
+                "file_name,segment_start_camera_time,segment_end_camera_time\n"
+                "segment-00263_2026-05-03T21-31-44Z.mp4,2026-05-03T21:31:44+00:00,2026-05-03T21:31:53+00:00\n"
+                "segment-00264_2026-05-03T21-31-54Z.mp4,2026-05-03T21:31:54+00:00,2026-05-03T21:32:03+00:00\n",
+                encoding="utf-8",
+            )
+
+            def _fake_run(cmd, check, cwd, stdin, stdout, stderr, text):
+                output_path = Path(cmd[-1])
+                output_path.write_bytes(b"fake-joined-video")
+                return object()
+
+            with patch("run_simulated_camera.subprocess.run", side_effect=_fake_run):
+                output_video, output_events = camera_runner._resolve_segment_range_assets(
+                    backend_dir=backend_dir,
+                    camera_id="1",
+                    range_start=263,
+                    range_end=264,
+                    ffmpeg_path="ffmpeg",
+                )
+
+            self.assertTrue(output_video.exists())
+            self.assertEqual(output_events.name, "filtered_events.jsonl")
+            self.assertEqual(output_video.parent.name, "camera_1_00263_00264")
+            self.assertTrue(output_video.name.startswith("D2026-05-03-T23-31-44"))
+            concat_list = output_video.parent / "segments.txt"
+            self.assertTrue(concat_list.exists())
+            concat_text = concat_list.read_text(encoding="utf-8")
+            self.assertIn("segment-00263_2026-05-03T21-31-44Z.mp4", concat_text)
+            self.assertIn("segment-00264_2026-05-03T21-31-54Z.mp4", concat_text)
+
+    def test_filter_events_for_time_window_writes_selected_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source_events = temp_path / "live_events.jsonl"
+            output_events = temp_path / "filtered_events.jsonl"
+            source_events.write_text(
+                "\n".join(
+                    [
+                        json.dumps({"id": "before", "start_time": "2026-05-03T20:01:37Z"}),
+                        json.dumps({"id": "inside-1", "start_time": "2026-05-03T20:01:38Z"}),
+                        json.dumps({"id": "inside-2", "start_time": "2026-05-03T20:03:00Z"}),
+                        json.dumps({"id": "after", "start_time": "2026-05-03T20:03:46Z"}),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            count = camera_runner._filter_events_for_time_window(
+                source_events=source_events,
+                output_events=output_events,
+                window_start=datetime(2026, 5, 3, 20, 1, 38, tzinfo=timezone.utc),
+                window_end=datetime(2026, 5, 3, 20, 3, 45, tzinfo=timezone.utc),
+            )
+
+            self.assertEqual(count, 2)
+            lines = [json.loads(line) for line in output_events.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([row["id"] for row in lines], ["inside-1", "inside-2"])
+
     def _write_scenario_files(self, events: list[dict]) -> tuple[str, str]:
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".mp4", delete=False) as video_fp:
             video_path = video_fp.name

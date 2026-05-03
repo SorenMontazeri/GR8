@@ -174,6 +174,9 @@ class CameraOnMessageTests(unittest.TestCase):
             snapshot_timestamp,
             full_frame_timestamp,
             snapshot_image_base64,
+            full_frame_image_base64,
+            uniform_images_base64,
+            varied_images_base64,
         ):
             self.saved.append(
                 {
@@ -189,6 +192,9 @@ class CameraOnMessageTests(unittest.TestCase):
                     "snapshot_timestamp": snapshot_timestamp,
                     "full_frame_timestamp": full_frame_timestamp,
                     "snapshot_image_base64": snapshot_image_base64,
+                    "full_frame_image_base64": full_frame_image_base64,
+                    "uniform_images_base64": uniform_images_base64,
+                    "varied_images_base64": varied_images_base64,
                 }
             )
 

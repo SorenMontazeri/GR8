@@ -1,10 +1,15 @@
 import csv
 import os
+import re
 import signal
 import time
 import multiprocessing as mp
+from collections import deque
 from datetime import datetime, timezone
 from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+
+
+SEGMENT_NAME_RE = re.compile(r"^segment-(\d+)(?:_.*)?\.mp4$")
 
 
 def add_onvif_replay_ext(rtsp_url):
@@ -18,12 +23,16 @@ def next_segment_index(output_directory):
     highest = -1
 
     for name in os.listdir(output_directory):
-        if name.startswith("segment-") and name.endswith(".mp4"):
-            number = name.removeprefix("segment-").removesuffix(".mp4")
-            if number.isdigit():
-                highest = max(highest, int(number))
+        match = SEGMENT_NAME_RE.match(name)
+        if match is not None:
+            highest = max(highest, int(match.group(1)))
 
     return highest + 1
+
+
+def build_informative_segment_name(index, camera_start_time):
+    timestamp = camera_start_time.astimezone(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return f"segment-{index:05d}_{timestamp}.mp4"
 
 
 def ntp_to_datetime(ntp_seconds, ntp_fraction):
@@ -65,7 +74,33 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
         "segment_times": {},
         "written_files": set(),
         "stopping": False,
+        "pts_to_camera_time": deque(maxlen=2000),
     }
+
+    def final_file_name(file_name):
+        if not file_name:
+            return file_name
+
+        times = state["segment_times"].get(file_name)
+        if not times or not times["start"]:
+            return file_name
+
+        base_name = os.path.basename(file_name)
+        match = SEGMENT_NAME_RE.match(base_name)
+        if match is None:
+            return file_name
+
+        segment_index = int(match.group(1))
+        target_name = build_informative_segment_name(segment_index, times["start"])
+        target_path = os.path.join(os.path.dirname(file_name), target_name)
+
+        if target_path == file_name:
+            return file_name
+
+        if not os.path.exists(target_path):
+            os.replace(file_name, target_path)
+
+        return target_path
 
     def write_index_row(file_name):
         if not file_name or file_name in state["written_files"]:
@@ -75,8 +110,10 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
         if not times or not times["start"] or not times["end"]:
             return
 
+        renamed_path = final_file_name(file_name)
+
         writer.writerow([
-            file_name,
+            os.path.basename(renamed_path),
             times["start"].isoformat(),
             times["end"].isoformat(),
         ])
@@ -101,7 +138,7 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
 
     def rtp_probe(pad, info):
         buffer = info.get_buffer()
-        if not buffer:
+        if not buffer or buffer.pts == Gst.CLOCK_TIME_NONE:
             return Gst.PadProbeReturn.OK
 
         ok, rtp = GstRtp.RTPBuffer.map(buffer, Gst.MapFlags.READ)
@@ -111,7 +148,7 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
         marker = GstRtp.RTPBuffer.get_marker(rtp)
         ext = GstRtp.RTPBuffer.get_extension_data(rtp)
 
-        if state["active_file"] and ext and marker:
+        if ext and marker:
             ext_data, ext_id = ext
 
             if ext_id == 0xABAC:
@@ -120,15 +157,44 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
                 ntp_seconds = int.from_bytes(payload[0:4], "big")
                 ntp_fraction = int.from_bytes(payload[4:8], "big")
                 camera_time = ntp_to_datetime(ntp_seconds, ntp_fraction)
-
-                times = state["segment_times"][state["active_file"]]
-
-                if times["start"] is None:
-                    times["start"] = camera_time
-
-                times["end"] = camera_time
+                state["pts_to_camera_time"].append((buffer.pts, camera_time))
 
         GstRtp.RTPBuffer.unmap(rtp)
+        return Gst.PadProbeReturn.OK
+
+    def camera_time_for_pts(pts):
+        if not state["pts_to_camera_time"]:
+            return None
+
+        closest_pts, camera_time = min(
+            state["pts_to_camera_time"],
+            key=lambda item: abs(item[0] - pts),
+        )
+
+        if abs(closest_pts - pts) > 100 * Gst.MSECOND:
+            return None
+
+        return camera_time
+
+    def parsed_video_probe(pad, info):
+        buffer = info.get_buffer()
+        if not buffer or buffer.pts == Gst.CLOCK_TIME_NONE:
+            return Gst.PadProbeReturn.OK
+
+        if not state["active_file"]:
+            return Gst.PadProbeReturn.OK
+
+        camera_time = camera_time_for_pts(buffer.pts)
+        if camera_time is None:
+            return Gst.PadProbeReturn.OK
+
+        times = state["segment_times"][state["active_file"]]
+
+        if times["start"] is None:
+            times["start"] = camera_time
+
+        times["end"] = camera_time
+
         return Gst.PadProbeReturn.OK
 
     pipeline = Gst.parse_launch(
@@ -138,6 +204,7 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
         ! identity name=rtp_probe silent=true
         ! rtph264depay
         ! h264parse config-interval=-1
+        ! identity name=parsed_video_probe silent=true
         ! splitmuxsink
             name=mux
             location="{recordings_dir}/segment-%05d.mp4"
@@ -149,6 +216,12 @@ def recorder_worker(rtsp_url, camera_id, segment_seconds, stop_event):
 
     probe = pipeline.get_by_name("rtp_probe")
     probe.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, rtp_probe)
+
+    parsed_probe = pipeline.get_by_name("parsed_video_probe")
+    parsed_probe.get_static_pad("src").add_probe(
+        Gst.PadProbeType.BUFFER,
+        parsed_video_probe,
+    )
 
     loop = GLib.MainLoop()
 

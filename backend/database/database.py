@@ -80,6 +80,7 @@ def get_events(query: str):
             u.timestamp_end AS u_timestamp_end,
             u.created_at AS u_created_at,
             u.timestamps_json AS u_timestamps_json,
+            u.images_base64_json AS u_images_base64_json,
             u.llm_description AS u_llm_description,
             u.description_embedding AS u_description_embedding,
             u.feedback AS u_feedback,
@@ -89,6 +90,7 @@ def get_events(query: str):
             v.timestamp_end AS v_timestamp_end,
             v.created_at AS v_created_at,
             v.timestamps_json AS v_timestamps_json,
+            v.images_base64_json AS v_images_base64_json,
             v.llm_description AS v_llm_description,
             v.description_embedding AS v_description_embedding,
             v.feedback AS v_feedback,
@@ -103,6 +105,7 @@ def get_events(query: str):
 
             f.id AS f_id,
             f.timestamp AS f_timestamp,
+            f.image_base64 AS f_image_base64,
             f.created_at AS f_created_at,
             f.llm_description AS f_llm_description,
             f.description_embedding AS f_description_embedding,
@@ -124,13 +127,20 @@ def get_events(query: str):
 
     uniform_timestamps = _parse_json(row["u_timestamps_json"]) if row["u_timestamps_json"] else []
     varied_timestamps = _parse_json(row["v_timestamps_json"]) if row["v_timestamps_json"] else []
-    uniform_images = _images_from_timestamps(uniform_timestamps)
-    varied_images = _images_from_timestamps(varied_timestamps)
+    uniform_images = _parse_json(row["u_images_base64_json"]) if row["u_images_base64_json"] else None
+    varied_images = _parse_json(row["v_images_base64_json"]) if row["v_images_base64_json"] else None
+    if not isinstance(uniform_images, list):
+        uniform_images = _images_from_timestamps(uniform_timestamps)
+    if not isinstance(varied_images, list):
+        varied_images = _images_from_timestamps(varied_timestamps)
     if row["s_snapshot_image_base64"] is not None:
         snapshot_image = row["s_snapshot_image_base64"]
     else:
         snapshot_image = _safe_image_from_iso(row["s_timestamp"]) if row["s_timestamp"] is not None else None
-    full_frame_image = _safe_image_from_iso(row["f_timestamp"]) if row["f_timestamp"] is not None else None
+    if row["f_image_base64"] is not None:
+        full_frame_image = row["f_image_base64"]
+    else:
+        full_frame_image = _safe_image_from_iso(row["f_timestamp"]) if row["f_timestamp"] is not None else None
 
     return {
         "query": query,
@@ -247,6 +257,7 @@ def create_database() -> None:
             timestamp_end TEXT NOT NULL,
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
+            images_base64_json TEXT,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             feedback INTEGER DEFAULT 0
@@ -258,6 +269,7 @@ def create_database() -> None:
             timestamp_end TEXT NOT NULL,
             created_at TEXT NOT NULL,
             timestamps_json TEXT NOT NULL,
+            images_base64_json TEXT,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
             feedback INTEGER DEFAULT 0
@@ -276,6 +288,7 @@ def create_database() -> None:
         CREATE TABLE IF NOT EXISTS full_frame_description (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
+            image_base64 TEXT,
             created_at TEXT NOT NULL,
             llm_description TEXT NOT NULL,
             description_embedding TEXT,
@@ -303,6 +316,21 @@ def create_database() -> None:
     )
     try:
         cur.execute("ALTER TABLE snapshot_description ADD COLUMN snapshot_image_base64 TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+    try:
+        cur.execute("ALTER TABLE sequence_description_uniform ADD COLUMN images_base64_json TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+    try:
+        cur.execute("ALTER TABLE sequence_description_varied ADD COLUMN images_base64_json TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+    try:
+        cur.execute("ALTER TABLE full_frame_description ADD COLUMN image_base64 TEXT;")
     except sqlite3.OperationalError as exc:
         if "duplicate column name" not in str(exc).lower():
             raise
@@ -336,11 +364,13 @@ def save_sequence_description_uniform(
     created_at: datetime | str,
     timestamps: list[datetime | str],
     llm_description: str,
+    images_base64: list[str] | None = None,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
     timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
+    images_base64_json = json.dumps(images_base64) if images_base64 is not None else None
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -348,14 +378,15 @@ def save_sequence_description_uniform(
         """
         INSERT INTO sequence_description_uniform (
             timestamp_start, timestamp_end, created_at, timestamps_json,
-            llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+            images_base64_json, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
             _to_iso(timestamp_end),
             _to_iso(created_at),
             timestamps_json,
+            images_base64_json,
             llm_description,
             description_embedding,
             feedback,
@@ -373,11 +404,13 @@ def save_sequence_description_varied(
     created_at: datetime | str,
     timestamps: list[datetime | str],
     llm_description: str,
+    images_base64: list[str] | None = None,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
     create_database()
     timestamps_json = json.dumps([_to_iso(ts) for ts in timestamps])
+    images_base64_json = json.dumps(images_base64) if images_base64 is not None else None
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
@@ -385,14 +418,15 @@ def save_sequence_description_varied(
         """
         INSERT INTO sequence_description_varied (
             timestamp_start, timestamp_end, created_at, timestamps_json,
-            llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?);
+            images_base64_json, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
             _to_iso(timestamp_end),
             _to_iso(created_at),
             timestamps_json,
+            images_base64_json,
             llm_description,
             description_embedding,
             feedback,
@@ -434,6 +468,7 @@ def save_full_frame_description(
     timestamp: datetime | str,
     created_at: datetime | str,
     llm_description: str,
+    image_base64: str | None = None,
     description_embedding: str | None = None,
     feedback: int = 0,
 ) -> int:
@@ -444,10 +479,10 @@ def save_full_frame_description(
     cur.execute(
         """
         INSERT INTO full_frame_description (
-            timestamp, created_at, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?);
+            timestamp, image_base64, created_at, llm_description, description_embedding, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?);
         """,
-        (_to_iso(timestamp), _to_iso(created_at), llm_description, description_embedding, feedback),
+        (_to_iso(timestamp), image_base64, _to_iso(created_at), llm_description, description_embedding, feedback),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -503,6 +538,9 @@ def save_description_bundle(
     snapshot_timestamp: datetime | str | None = None,
     full_frame_timestamp: datetime | str | None = None,
     snapshot_image_base64: str | None = None,
+    full_frame_image_base64: str | None = None,
+    uniform_images_base64: list[str] | None = None,
+    varied_images_base64: list[str] | None = None,
 ) -> dict[str, int]:
     start_iso = _to_iso(timestamp_start)
     end_iso = _to_iso(timestamp_end)
@@ -522,6 +560,7 @@ def save_description_bundle(
         created_at=created_at,
         timestamps=uniform_timestamps,
         llm_description=uniform_llm_description,
+        images_base64=uniform_images_base64,
         description_embedding=json.dumps(embed(uniform_llm_description)),
     )
     varied_id = save_sequence_description_varied(
@@ -530,6 +569,7 @@ def save_description_bundle(
         created_at=created_at,
         timestamps=varied_timestamps,
         llm_description=varied_llm_description,
+        images_base64=varied_images_base64,
         description_embedding=json.dumps(embed(varied_llm_description)),
     )
     snapshot_id = save_snapshot_description(
@@ -543,6 +583,7 @@ def save_description_bundle(
         timestamp=full_frame_timestamp,
         created_at=created_at,
         llm_description=full_frame_llm_description,
+        image_base64=full_frame_image_base64,
         description_embedding=json.dumps(embed(full_frame_llm_description)),
     )
     group_id = save_description_group(
@@ -735,5 +776,5 @@ def seed_test_data():
 
 if __name__ == "__main__":
     #seed_test_data()
-    seed_test_data()
+    #seed_test_data()
     uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

@@ -39,8 +39,9 @@ class GStreamerHotBuffer:
         max_bytes: int = 50 * 1024 * 1024,
         jpeg_quality: int = 70,
         max_width: int = 960,
+        use_onvif_replay_ext: bool = True,
     ) -> None:
-        self.rtsp_url = add_onvif_replay_ext(rtsp_url)
+        self.rtsp_url = add_onvif_replay_ext(rtsp_url) if use_onvif_replay_ext else rtsp_url
         self.camera_id = str(camera_id)
         self.seconds = seconds
         self.fps = fps
@@ -58,6 +59,7 @@ class GStreamerHotBuffer:
         self._thread: threading.Thread | None = None
         self._loop: GLib.MainLoop | None = None
         self._pipeline: Gst.Pipeline | None = None
+        self._sample_count = 0
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -186,11 +188,32 @@ class GStreamerHotBuffer:
                 height=height,
             )
         )
+        self._sample_count += 1
+        if self._sample_count <= 3 or self._sample_count % 50 == 0:
+            print(
+                f"[camera:{self.camera_id}][hot-buffer] sample={self._sample_count} "
+                f"ts={camera_time.isoformat()} size={width}x{height}"
+            )
 
         return Gst.FlowReturn.OK
 
+    def _on_bus_error(self, bus, message):
+        err, debug = message.parse_error()
+        print(f"[camera:{self.camera_id}][hot-buffer] ERROR: {err}")
+        if debug:
+            print(f"[camera:{self.camera_id}][hot-buffer] ERROR debug: {debug}")
+        if self._loop is not None:
+            self._loop.quit()
+
+    def _on_bus_warning(self, bus, message):
+        warn, debug = message.parse_warning()
+        print(f"[camera:{self.camera_id}][hot-buffer] WARNING: {warn}")
+        if debug:
+            print(f"[camera:{self.camera_id}][hot-buffer] WARNING debug: {debug}")
+
     def _run(self) -> None:
         Gst.init(None)
+        print(f"[camera:{self.camera_id}][hot-buffer] starting pipeline rtsp={self.rtsp_url}")
 
         self._pipeline = Gst.parse_launch(
             f"""
@@ -219,7 +242,10 @@ class GStreamerHotBuffer:
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message::eos", lambda *_: self._loop.quit())
+        bus.connect("message::error", self._on_bus_error)
+        bus.connect("message::warning", self._on_bus_warning)
 
-        self._pipeline.set_state(Gst.State.PLAYING)
+        state_change = self._pipeline.set_state(Gst.State.PLAYING)
+        print(f"[camera:{self.camera_id}][hot-buffer] set_state(PLAYING) -> {state_change.value_nick}")
         self._loop.run()
         self._pipeline.set_state(Gst.State.NULL)

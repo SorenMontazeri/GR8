@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timedelta
 import json
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Tuple
 
-from anyio import Path
 import cv2
 import numpy as np
 
@@ -13,9 +13,7 @@ from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 
 
 def load_settings():
-    settings_path = (
-        Path(__file__).resolve().parent.parent / "database" / "settings.json"
-    )
+    settings_path = Path(__file__).resolve().parents[2] / "database" / "settings.json"
     with open(settings_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -24,34 +22,68 @@ def encode_frame(frame: BufferedFrame) -> str:
     return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
 
 
+def _uniform_frame_count(
+    frame_buffer: FrameRingBuffer,
+    start_time: datetime,
+    end_time: datetime,
+) -> int:
+    settings = load_settings()
+    duration = (end_time - start_time).total_seconds()
+    mode = int(settings.get("uniform_samplerate", 1))
+    value = float(settings.get("uniform_samplerate_value", 0))
+
+    if mode == 1:
+        return 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3)))
+
+    with frame_buffer._lock:
+        available_frames = sum(
+            1
+            for frame in frame_buffer._frames
+            if start_time <= frame.timestamp <= end_time
+        )
+
+    if available_frames <= 0:
+        return 0
+
+    if mode == 2:
+        percent = value
+        if percent > 1:
+            percent = percent / 100.0
+        percent = max(0.0, min(percent, 1.0))
+        return max(1, int(available_frames * percent))
+
+    if mode == 3:
+        return max(1, int(value))
+
+    return 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3)))
+
+
 def frame_selection_uniform(
     frame_buffer: FrameRingBuffer | None,
     start_time: datetime,
     end_time: datetime,
 ) -> Tuple[List[str], List[datetime]]:
-    """
-    Select frames evenly spaced between start_time and end_time.
-    Deduplicates identical JPEG frames.
-    """
     if frame_buffer is None or end_time < start_time:
         return [], []
-    duration = (end_time - start_time).total_seconds()
-    frame_count = 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3)))
 
+    frame_count = _uniform_frame_count(frame_buffer, start_time, end_time)
     if frame_count <= 0:
         return [], []
 
     selected_frames: List[str] = []
     selected_timestamps: List[datetime] = []
     seen: set[bytes] = set()
-
-    step = timedelta(0) if frame_count == 1 else (end_time - start_time) / (frame_count - 1)
+    step = (
+        timedelta(0)
+        if frame_count == 1
+        else (end_time - start_time) / (frame_count - 1)
+    )
 
     for i in range(frame_count):
         frame = frame_buffer.search_frame(start_time + step * i)
         if frame is None:
             continue
-        if not (start_time < frame.timestamp < end_time):
+        if not (start_time <= frame.timestamp <= end_time):
             continue
         if frame.jpeg_bytes in seen:
             continue
@@ -62,10 +94,6 @@ def frame_selection_uniform(
 
     return selected_frames, selected_timestamps
 
-
-# -------------------------------------------------------------------
-# Change-based frame selection
-# -------------------------------------------------------------------
 
 def _thumbnail(frame: BufferedFrame) -> np.ndarray:
     image = cv2.imdecode(
@@ -82,7 +110,7 @@ def _thumbnail(frame: BufferedFrame) -> np.ndarray:
 
 def _changed_pixel_ratio(left: np.ndarray, right: np.ndarray) -> float:
     settings = load_settings()
-    pixel_threshold = settings.get("movement_tracker_pixel_threshold", 30)
+    pixel_threshold = settings.get("movement_tracker_type_threshhold", 30)
     diff = cv2.absdiff(left, right)
     return float((diff > pixel_threshold).sum()) * 100.0 / float(diff.size)
 
@@ -94,10 +122,6 @@ def frame_selection_movement(
     max_change_percent: float,
     max_interval_seconds: int = 10,
 ) -> Tuple[List[str], List[datetime]]:
-    """
-    Select frames based on visual change percentage.
-    Ensures minimum temporal spacing.
-    """
     if (
         frame_buffer is None
         or end_time < start_time
@@ -118,7 +142,6 @@ def frame_selection_movement(
 
     selected_frames = [encode_frame(buffer_frames[0])]
     selected_timestamps = [buffer_frames[0].timestamp]
-
     current_frame = buffer_frames[0]
     current_thumb = _thumbnail(current_frame)
 
@@ -126,7 +149,11 @@ def frame_selection_movement(
         next_thumb = _thumbnail(next_frame)
         change = _changed_pixel_ratio(current_thumb, next_thumb)
 
-        if (change > max_change_percent and next_frame.timestamp < current_frame.timestamp + timedelta(seconds=max_interval_seconds)):
+        if (
+            change > max_change_percent
+            and next_frame.timestamp
+            < current_frame.timestamp + timedelta(seconds=max_interval_seconds)
+        ):
             continue
 
         selected_frames.append(encode_frame(next_frame))

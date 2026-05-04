@@ -8,7 +8,11 @@ import json
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
-import settings_editor
+
+try:
+    from database import settings_editor
+except ImportError:
+    import settings_editor
 
 import sqlite3
 

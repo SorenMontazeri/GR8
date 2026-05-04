@@ -1,5 +1,5 @@
 {
-  "min_event_duration": 0,
+  "min_event_duration": 3,
   "prompt_fullframe_snapshot": "",
   "prompt_uniform_movement": "",
   "fullframe_time": -1,

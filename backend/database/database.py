@@ -8,7 +8,6 @@ import os
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
-#from . import settings_editor
 import settings_editor
 
 import sqlite3
@@ -204,21 +203,30 @@ def get_stats():
     create_database()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    
-    # Här använder vi de nya namnen uniform/varied
+
+    current_settings = settings_editor.normalized_settings_json(load_settings())
+
     stats = {}
+
     mapping = {
-        "snapshot": "snapshot_description",
-        "fullframe": "full_frame_description",
-        "uniform": "sequence_description_uniform",
-        "varied": "sequence_description_varied"
+        "snapshot": ("snapshot_description", "snapshot_description_id"),
+        "fullframe": ("full_frame_description", "full_frame_description_id"),
+        "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
+        "varied": ("sequence_description_varied", "sequence_description_varied_id"),
     }
-    
-    for key, table in mapping.items():
-        cur.execute(f"SELECT SUM(feedback) FROM {table}")
-        res = cur.fetchone()
-        stats[key] = res if res and res is not None else 0
-        
+
+    for key, (table, fk_col) in mapping.items():
+        cur.execute(
+            f"""
+            SELECT COALESCE(SUM(t.feedback), 0)
+            FROM description_group dg
+            JOIN {table} t ON t.id = dg.{fk_col}
+            WHERE dg.settings_json = ?;
+            """,
+            (current_settings,),
+        )
+        stats[key] = cur.fetchone()[0]
+
     conn.close()
     return stats
 
@@ -859,7 +867,7 @@ def seed_test_data():
         timestamp_end=event_end,
         created_at=base_video_time,
         uniform_llm_description="En person går genom rummet i jämn takt.",
-        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet1.",
+        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet3.",
         snapshot_llm_description="En person står nära dörröppningen.",
         full_frame_llm_description="Rummet är synligt i helbild med en person som passerar genom scenen.",
         uniform_timestamps=[event_start, event_end],
@@ -909,5 +917,5 @@ def clear_recordings_directory() -> int:
 
 if __name__ == "__main__":
     #seed_test_data()
-    seed_test_data()
+    #seed_test_data()
     uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

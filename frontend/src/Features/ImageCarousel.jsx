@@ -2,13 +2,13 @@ import { use, useEffect, useState } from "react";
 import { normalizeImageSrc } from "../utils/imageSrc";
 
 export default function ImageCarousel({ images = [], searchString }) {
-  // Den här useEffecten körs när nya bilder eller ett nytt sökord kommer in.
+  // Den här useEffecten körs när nya bilder eller ett nytt sökord kommer.
   // Just nu används den bara för att skriva ut information i konsolen.
   useEffect(() => {
     console.log("ImageCarousel received new props:",  images.length, searchString );
   }, [images, searchString]);
 
-  const testImages = ["/bird.jpg", "/flower.jpg"];
+  const testImages = [];
 
   // currentIndex håller reda på vilken bild i listan som visas just nu.
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -22,9 +22,11 @@ export default function ImageCarousel({ images = [], searchString }) {
   // eller när en ny lista med bilder kommer in.
   useEffect(() => {
     if (displayImages.length > 0) {
+      console.log("Updating currentSrc for image at index", currentIndex);
       
     setCurrentSrc(renderImage());
     } else {
+      console.warn("No images to display, clearing currentSrc");
       setCurrentSrc("");
     }
   }, [currentIndex, images]);

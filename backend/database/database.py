@@ -8,6 +8,7 @@ import json
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
+import settings_editor
 
 import sqlite3
 
@@ -16,6 +17,8 @@ import uvicorn
 from zoneinfo import ZoneInfo
 
 DB_PATH = Path(__file__).with_name("analysis.sqlite")
+SETTINGS_PATH = Path(__file__).with_name("settings.json")
+settings_editor.SETTINGS_PATH = SETTINGS_PATH
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 CAMERA_ID = "1"
 RECORDINGS_DIR = BACKEND_DIR / "recordings" / CAMERA_ID
@@ -25,11 +28,7 @@ RECORDINGS_TZ = ZoneInfo("Europe/Stockholm")
 MODEL_PATH = "./models/all-MiniLM-L6-v2"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 MODEL_DIR = "./models/all-MiniLM-L6-v2"
-if Path(MODEL_DIR).exists():
-    model = SentenceTransformer(MODEL_DIR)
-else:
-    model = SentenceTransformer(MODEL_NAME)
-    model.save(MODEL_DIR)
+model = None
 app = FastAPI()
 
 app.add_middleware(
@@ -44,6 +43,7 @@ FEEDBACK_TARGETS = {
     "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
     "varied": ("sequence_description_varied", "sequence_description_varied_id"),
     "snapshot": ("snapshot_description", "snapshot_description_id"),
+    "fullframe": ("full_frame_description", "full_frame_description_id"),
     "full_frame": ("full_frame_description", "full_frame_description_id"),
 }
 
@@ -52,6 +52,19 @@ class FeedbackRequest(BaseModel):
     description_type: str
     id: int  # description_group.id
     feedback: int  # 1 or -1
+
+
+class SettingsRequest(BaseModel):
+    min_event_duration: int = 0
+    prompt_fullframe_snapshot: str = ""
+    prompt_uniform_movement: str = ""
+    fullframe_time: int = -1
+    uniform_samplerate: int = 1
+    uniform_samplerate_value: int = 0
+    movement_tracker_type: int = 1
+    movement_tracker_type_threshhold: int = 0
+    movement_samplerate: int = 1
+    movement_samplerate_value: int = 0
 
 
 @app.get("/api/event/{query}")
@@ -196,10 +209,55 @@ def get_events(query: str):
         } if row["f_id"] is not None else None,
     }
 
+# lisa cora 
+@app.get("/api/stats")
+def get_stats():
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    current_settings = settings_editor.normalized_settings_json(load_settings())
+
+    stats = {}
+
+    mapping = {
+        "snapshot": ("snapshot_description", "snapshot_description_id"),
+        "fullframe": ("full_frame_description", "full_frame_description_id"),
+        "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
+        "varied": ("sequence_description_varied", "sequence_description_varied_id"),
+    }
+
+    for key, (table, fk_col) in mapping.items():
+        cur.execute(
+            f"""
+            SELECT COALESCE(SUM(t.feedback), 0)
+            FROM description_group dg
+            JOIN {table} t ON t.id = dg.{fk_col}
+            WHERE dg.settings_json = ?;
+            """,
+            (current_settings,),
+        )
+        stats[key] = cur.fetchone()[0]
+
+    conn.close()
+    return stats
 
 @app.post("/api/feedback", status_code=204)
 def post_feedback(payload: FeedbackRequest):
     update_feedback(payload.description_type, payload.id, payload.feedback)
+
+
+@app.get("/api/settings")
+def get_settings():
+    return load_settings()
+
+
+@app.post("/api/settings")
+def post_settings(payload: SettingsRequest):
+    settings = payload.model_dump()
+    validate_settings(settings)
+    save_settings(settings)
+    return {"settings": settings}
 
 
 def update_feedback(description_type: str, group_id: int, feedback_value: int) -> None:
@@ -303,6 +361,7 @@ def create_database() -> None:
             sequence_description_varied_id INTEGER,
             snapshot_description_id INTEGER,
             full_frame_description_id INTEGER,
+            settings_json TEXT,
             FOREIGN KEY (sequence_description_uniform_id)
                 REFERENCES sequence_description_uniform(id),
             FOREIGN KEY (sequence_description_varied_id)
@@ -311,6 +370,12 @@ def create_database() -> None:
                 REFERENCES snapshot_description(id),
             FOREIGN KEY (full_frame_description_id)
                 REFERENCES full_frame_description(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS app_settings (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            settings_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
         """
     )
@@ -334,8 +399,87 @@ def create_database() -> None:
     except sqlite3.OperationalError as exc:
         if "duplicate column name" not in str(exc).lower():
             raise
+    try:
+        cur.execute("ALTER TABLE sequence_description_uniform ADD COLUMN images_base64_json TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+    try:
+        cur.execute("ALTER TABLE sequence_description_varied ADD COLUMN images_base64_json TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
+    try:
+        cur.execute("ALTER TABLE full_frame_description ADD COLUMN image_base64 TEXT;")
+    except sqlite3.OperationalError as exc:
+        if "duplicate column name" not in str(exc).lower():
+            raise
     conn.commit()
     conn.close()
+
+
+def default_settings() -> dict:
+    return SettingsRequest().model_dump()
+
+
+def validate_settings(settings: dict) -> None:
+    if settings["min_event_duration"] < 0:
+        raise HTTPException(status_code=400, detail="min_event_duration must be >= 0")
+    if settings["fullframe_time"] not in {-1, 0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100}:
+        raise HTTPException(status_code=400, detail="fullframe_time must be -1 or 0-100 in steps of 10")
+    if settings["uniform_samplerate"] not in {1, 2, 3}:
+        raise HTTPException(status_code=400, detail="uniform_samplerate must be 1, 2, or 3")
+    if settings["movement_samplerate"] not in {1, 2, 3}:
+        raise HTTPException(status_code=400, detail="movement_samplerate must be 1, 2, or 3")
+    if settings["movement_tracker_type"] not in {1, 2}:
+        raise HTTPException(status_code=400, detail="movement_tracker_type must be 1 or 2")
+    if settings["uniform_samplerate_value"] < 0:
+        raise HTTPException(status_code=400, detail="uniform_samplerate_value must be >= 0")
+    if settings["movement_samplerate_value"] < 0:
+        raise HTTPException(status_code=400, detail="movement_samplerate_value must be >= 0")
+    if settings["movement_tracker_type_threshhold"] < 0:
+        raise HTTPException(status_code=400, detail="movement_tracker_type_threshhold must be >= 0")
+
+
+def save_settings(settings: dict) -> None:
+    settings_editor.save_settings(settings)
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        INSERT INTO app_settings (id, settings_json, updated_at)
+        VALUES (1, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            settings_json = excluded.settings_json,
+            updated_at = excluded.updated_at;
+        """,
+        (json.dumps(settings), datetime.now(RECORDINGS_TZ).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_settings() -> dict:
+    file_settings = settings_editor.load_settings()
+    if file_settings:
+        settings = default_settings()
+        settings.update(file_settings)
+        return settings
+
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT settings_json FROM app_settings WHERE id = 1;")
+    row = cur.fetchone()
+    conn.close()
+
+    if row is None:
+        return default_settings()
+
+    settings = default_settings()
+    settings.update(json.loads(row[0]))
+    return settings
 
 
 def _to_iso(ts: datetime | str) -> str:
@@ -497,9 +641,11 @@ def save_description_group(
     sequence_description_varied_id: int | None = None,
     snapshot_description_id: int | None = None,
     full_frame_description_id: int | None = None,
+    settings: dict | None = None,
 ) -> int:
     create_database()
-
+    if settings is None:
+        settings = load_settings()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     cur.execute(
@@ -507,8 +653,8 @@ def save_description_group(
         INSERT INTO description_group (
             timestamp_start, timestamp_end,
             sequence_description_uniform_id, sequence_description_varied_id,
-            snapshot_description_id, full_frame_description_id
-        ) VALUES (?, ?, ?, ?, ?, ?);
+            snapshot_description_id, full_frame_description_id, settings_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
@@ -517,6 +663,7 @@ def save_description_group(
             sequence_description_varied_id,
             snapshot_description_id,
             full_frame_description_id,
+            settings_editor.normalized_settings_json(settings)
         ),
     )
     conn.commit()
@@ -592,7 +739,7 @@ def save_description_bundle(
         sequence_description_uniform_id=uniform_id,
         sequence_description_varied_id=varied_id,
         snapshot_description_id=snapshot_id,
-        full_frame_description_id=full_frame_id,
+        full_frame_description_id=full_frame_id, 
     )
 
     return {
@@ -642,8 +789,19 @@ def image_from_timestamp(t, clip=10):
     print(f"[database] {message}")
     raise FileNotFoundError(message)
 
+def get_model():
+    global model
+    if model is None:
+        if Path(MODEL_DIR).exists():
+            model = SentenceTransformer(MODEL_DIR)
+        else:
+            model = SentenceTransformer(MODEL_NAME)
+            model.save(MODEL_DIR)
+    return model
+
 def embed(text: str):
-    return model.encode(text, normalize_embeddings=True).tolist()
+    embed_model = get_model()
+    return embed_model.encode(text, normalize_embeddings=True).tolist()
 
 def cosine_similarity(a, b):
     return sum(x * y for x, y in zip(a, b))
@@ -679,6 +837,7 @@ def _images_from_timestamps(timestamps):
 
 
 def find_best_event(query):
+    current_settings = settings_editor.normalized_settings_json(load_settings())
     query_embedding = embed(query)
     create_database()
     conn = sqlite3.connect(DB_PATH)
@@ -706,7 +865,9 @@ def find_best_event(query):
         LEFT JOIN sequence_description_varied v ON v.id = dg.sequence_description_varied_id
         LEFT JOIN snapshot_description s ON s.id = dg.snapshot_description_id
         LEFT JOIN full_frame_description f ON f.id = dg.full_frame_description_id
-        """
+        WHERE dg.settings_json= ?
+        """,
+        (current_settings,)
     )
 
     rows = cur.fetchall()
@@ -763,7 +924,7 @@ def seed_test_data():
         timestamp_end=event_end,
         created_at=base_video_time,
         uniform_llm_description="En person går genom rummet i jämn takt.",
-        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet.",
+        varied_llm_description="En person syns först vid dörren och rör sig sedan mot mitten av rummet3.",
         snapshot_llm_description="En person står nära dörröppningen.",
         full_frame_llm_description="Rummet är synligt i helbild med en person som passerar genom scenen.",
         uniform_timestamps=[event_start, event_end],
@@ -773,8 +934,45 @@ def seed_test_data():
         snapshot_image_base64=snapshot_b64,
     )
 
+# lisa cora 
+
+@app.post("/api/admin/reset")
+@app.patch("/api/admin/reset")
+def reset_storage():
+    """Endpoint som anropas från frontend för att rensa allt."""
+    deleted_database_file = clear_database_file()
+    deleted_recordings = clear_recordings_directory()
+    return {
+        "status": "ok",
+        "deleted_database_file": deleted_database_file,
+        "deleted_recordings": deleted_recordings,
+    }
+
+def clear_database_file() -> bool:
+    """Tar bort sqlite-filen."""
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+        return True
+    return False
+
+def clear_recordings_directory() -> int:
+    """Rensar mappen med inspelningar/bilder."""
+    import shutil
+    recordings_path = Path(RECORDINGS_DIR)
+    if not recordings_path.exists() or not recordings_path.is_dir():
+        return 0
+
+    deleted_file_count = 0
+    for child in recordings_path.iterdir():
+        if child.is_file() or child.is_symlink():
+            child.unlink()
+            deleted_file_count += 1
+        elif child.is_dir():
+            deleted_file_count += sum(1 for path in child.rglob("*") if path.is_file())
+            shutil.rmtree(child)
+    return deleted_file_count
 
 if __name__ == "__main__":
     #seed_test_data()
-    #seed_test_data()
+    ##seed_test_data()
     uvicorn.run("database:app", host="127.0.0.1", port=8000, reload=False)

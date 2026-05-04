@@ -5,17 +5,14 @@ import time
 
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-BACKEND_PYTHON_DOT = os.path.join(ROOT, "backend", ".venv", "bin", "python")
-BACKEND_PYTHON_VENV = os.path.join(ROOT, "backend", "venv", "bin", "python")
-
-if os.path.exists(BACKEND_PYTHON_DOT):
-    BACKEND_PYTHON = BACKEND_PYTHON_DOT
-else:
-    BACKEND_PYTHON = BACKEND_PYTHON_VENV
+BACKEND_PYTHON = sys.executable
 
 
 def main():
     processes = []
+
+    print("Using Python:", BACKEND_PYTHON)
+    print("Exists:", os.path.exists(BACKEND_PYTHON))
 
     backend = subprocess.Popen(
         [BACKEND_PYTHON, "database.py"],
@@ -27,6 +24,7 @@ def main():
     frontend = subprocess.Popen(
         ["npm", "run", "dev"],
         cwd=os.path.join(ROOT, "frontend"),
+        shell=(os.name == "nt"),
     )
     processes.append(frontend)
     print(f"Started frontend with pid {frontend.pid}")
@@ -46,7 +44,10 @@ def main():
 
         for process in processes:
             if process.poll() is None:
-                process.wait(timeout=5)
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
 
 
 if __name__ == "__main__":

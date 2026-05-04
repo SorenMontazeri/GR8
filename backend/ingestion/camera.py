@@ -247,21 +247,21 @@ class Camera:
 
             try:
                 save_description_bundle(
-                    target_start_time,
-                    target_end_time,
-                    datetime.now(timezone.utc),
-                    response_selection_1["description"],
-                    response_selection_2["description"],
-                    response_snapshot["description"],
-                    response_full_frame["description"],
-                    selection_1_timestamps,
-                    selection_2_timestamps,
-                    snapshot_timestamp,
-                    full_frame_timestamp,
-                    snapshot_b64,
-                    full_frame_b64,
-                    selection_1_images,
-                    selection_2_images,
+                    timestamp_start=target_start_time,
+                    timestamp_end=target_end_time,
+                    created_at=datetime.now(timezone.utc),
+                    uniform_llm_description=response_selection_1["description"],
+                    varied_llm_description=response_selection_2["description"],
+                    snapshot_llm_description=response_snapshot["description"],
+                    full_frame_llm_description=response_full_frame["description"],
+                    uniform_timestamps=selection_1_timestamps,
+                    varied_timestamps=selection_2_timestamps,
+                    snapshot_timestamp=snapshot_timestamp,
+                    full_frame_timestamp=full_frame_timestamp,
+                    snapshot_image_base64=snapshot_b64,
+                    full_frame_image_base64=full_frame_b64,
+                    uniform_images_base64=selection_1_images,
+                    varied_images_base64=selection_2_images,
                 )
             except Exception as exc:
                 print(f"[camera:{self.camera_id}] saving to database failed: {exc}")

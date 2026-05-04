@@ -453,53 +453,35 @@ def create_database() -> None:
         );
 
         CREATE TABLE IF NOT EXISTS app_settings (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
+            id INTEGER PRIMARY KEY,
             settings_json TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
         """
     )
-    try:
-        cur.execute("ALTER TABLE snapshot_description ADD COLUMN snapshot_image_base64 TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
-    try:
-        cur.execute("ALTER TABLE sequence_description_uniform ADD COLUMN images_base64_json TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
-    try:
-        cur.execute("ALTER TABLE sequence_description_varied ADD COLUMN images_base64_json TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
-    try:
-        cur.execute("ALTER TABLE full_frame_description ADD COLUMN image_base64 TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
-    try:
-        cur.execute("ALTER TABLE sequence_description_uniform ADD COLUMN images_base64_json TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
-    try:
-        cur.execute("ALTER TABLE sequence_description_varied ADD COLUMN images_base64_json TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
-    try:
-        cur.execute("ALTER TABLE full_frame_description ADD COLUMN image_base64 TEXT;")
-    except sqlite3.OperationalError as exc:
-        if "duplicate column name" not in str(exc).lower():
-            raise
+
+    migrations = [
+        ("snapshot_description", "snapshot_image_base64", "TEXT"),
+        ("sequence_description_uniform", "images_base64_json", "TEXT"),
+        ("sequence_description_varied", "images_base64_json", "TEXT"),
+        ("full_frame_description", "image_base64", "TEXT"),
+        ("sequence_description_uniform", "number_of_tokens", "INTEGER"),
+        ("sequence_description_varied", "number_of_tokens", "INTEGER"),
+        ("snapshot_description", "number_of_tokens", "INTEGER"),
+        ("full_frame_description", "number_of_tokens", "INTEGER"),
+    ]
+    for table, column, column_type in migrations:
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type};")
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                raise
     conn.commit()
     conn.close()
 
 
 def default_settings() -> dict:
-    return SettingsRequest().model_dump()
+    return settings_editor.default_settings()
 
 
 def validate_settings(settings: dict) -> None:
@@ -609,8 +591,8 @@ def save_sequence_description_uniform(
         """
         INSERT INTO sequence_description_uniform (
             timestamp_start, timestamp_end, created_at, timestamps_json,
-            images_base64_json, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            images_base64_json, llm_description, description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
@@ -652,8 +634,8 @@ def save_sequence_description_varied(
         """
         INSERT INTO sequence_description_varied (
             timestamp_start, timestamp_end, created_at, timestamps_json,
-            images_base64_json, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            images_base64_json, llm_description, description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
         """,
         (
             _to_iso(timestamp_start),
@@ -727,8 +709,9 @@ def save_full_frame_description(
     cur.execute(
         """
         INSERT INTO full_frame_description (
-            timestamp, image_base64, created_at, llm_description, description_embedding, feedback
-        ) VALUES (?, ?, ?, ?, ?, ?);
+            timestamp, image_base64, created_at, llm_description,
+            description_embedding, number_of_tokens, feedback
+        ) VALUES (?, ?, ?, ?, ?, ?, ?);
         """,
         (_to_iso(timestamp), image_base64, _to_iso(created_at), llm_description, description_embedding, feedback),
     )

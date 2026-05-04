@@ -71,9 +71,22 @@ class SettingsRequest(BaseModel):
     uniform_samplerate: int = 1
     uniform_samplerate_value: int = 0
     movement_tracker_type: int = 1
-    movement_tracker_type_threshhold: int = 0
+    movement_tracker_type_threshhold: int = 1
     movement_samplerate: int = 1
     movement_samplerate_value: int = 0
+
+
+@app.get("/api/settings")
+def get_settings():
+    return load_settings()
+
+
+@app.post("/api/settings")
+def post_settings(payload: SettingsRequest):
+    settings = payload.model_dump()
+    validate_settings(settings)
+    save_settings(settings)
+    return settings
 
 
 @app.get("/api/event/{query}")
@@ -469,6 +482,7 @@ def create_database() -> None:
         ("sequence_description_varied", "number_of_tokens", "INTEGER"),
         ("snapshot_description", "number_of_tokens", "INTEGER"),
         ("full_frame_description", "number_of_tokens", "INTEGER"),
+        ("description_group", "settings_json", "TEXT"),
     ]
     for table, column, column_type in migrations:
         try:
@@ -476,6 +490,11 @@ def create_database() -> None:
         except sqlite3.OperationalError as exc:
             if "duplicate column name" not in str(exc).lower():
                 raise
+    default_settings_json = settings_editor.normalized_settings_json(settings_editor.load_settings())
+    cur.execute(
+        "UPDATE description_group SET settings_json = ? WHERE settings_json IS NULL;",
+        (default_settings_json,),
+    )
     conn.commit()
     conn.close()
 

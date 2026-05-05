@@ -103,7 +103,6 @@ class SimulatedLiveCameraE2ETest(unittest.TestCase):
         camera = _NoAnalysisCamera(
             camera_id=camera_id,
             rtsp_url=read_url,
-            ffmpeg=ffmpeg_path,
             broker_host=broker_host,
             broker_port=broker_port,
             segment_seconds=5,

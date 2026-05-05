@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from ingestion.source.replay_reader import RawEvent
 
@@ -13,10 +13,20 @@ class RawEventStore:
 
     (Används i största syfte för testning)
     """
-    def __init__(self, folder: str = "replay_out") -> None:
-        self.base = Path(folder)
+    def __init__(
+        self,
+        folder: str = "replay_out",
+        file_name: str = "raw_events.jsonl",
+        output_path: Optional[str | Path] = None,
+    ) -> None:
+        if output_path is not None:
+            output = Path(output_path)
+            self.base = output.parent
+            self.file = output
+        else:
+            self.base = Path(folder)
+            self.file = self.base / file_name
         self.base.mkdir(parents=True, exist_ok=True)
-        self.file = self.base / "raw_events.jsonl"
 
     def append(self, raw_event: RawEvent) -> None:
         row: Dict[str, Any] = {

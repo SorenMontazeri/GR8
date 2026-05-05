@@ -3,7 +3,7 @@ from __future__ import annotations
 import threading
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Deque, Dict, List
 
 
@@ -33,8 +33,10 @@ class FrameRingBuffer:
     def latest(self, seconds: int) -> List[BufferedFrame]:
         if seconds <= 0:
             return []
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=seconds)
         with self._lock:
+            if not self._frames:
+                return []
+            cutoff = self._frames[-1].timestamp - timedelta(seconds=seconds)
             return [f for f in self._frames if f.timestamp >= cutoff]
 
     def stats(self) -> Dict[str, int]:
@@ -52,6 +54,13 @@ class FrameRingBuffer:
         ):
             old = self._frames.popleft()
             self._total_bytes -= len(old.jpeg_bytes)
+
+    def frames_between(self, start_time: datetime, end_time: datetime) -> List[BufferedFrame]:
+        with self._lock:
+            return [frame for frame in self._frames if start_time <= frame.timestamp <= end_time]
+
+    def frame_at(self, target_timestamp: datetime) -> BufferedFrame | None:
+        return self.search_frame(target_timestamp)
 
     def search_frame(self, target_timestamp: datetime) -> BufferedFrame | None:
         with self._lock:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import threading
 from collections import deque
 from datetime import datetime, timezone
@@ -40,23 +39,27 @@ class GStreamerHotBuffer:
         max_bytes: int = 50 * 1024 * 1024,
         jpeg_quality: int = 70,
         max_width: int = 960,
+        use_onvif_replay_ext: bool = True,
     ) -> None:
-        self.rtsp_url = add_onvif_replay_ext(rtsp_url)
+        self.rtsp_url = add_onvif_replay_ext(rtsp_url) if use_onvif_replay_ext else rtsp_url
         self.camera_id = str(camera_id)
+        self.seconds = seconds
         self.fps = fps
         self.jpeg_quality = jpeg_quality
         self.max_width = max_width
 
-        self.buffer = FrameRingBuffer(
+        self._buffer = FrameRingBuffer(
             max_frames=seconds * fps,
             max_bytes=max_bytes,
         )
 
-        self._timestamps: deque[datetime] = deque(maxlen=300)
-        self._stop_event = threading.Event()
+        self._pts_to_camera_time: deque[tuple[int, datetime]] = deque(maxlen=1000)
+        self._pts_lock = threading.Lock()
+
         self._thread: threading.Thread | None = None
         self._loop: GLib.MainLoop | None = None
         self._pipeline: Gst.Pipeline | None = None
+        self._sample_count = 0
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -67,8 +70,6 @@ class GStreamerHotBuffer:
         self._thread.start()
 
     def stop(self) -> None:
-        self._stop_event.set()
-
         if self._pipeline is not None:
             self._pipeline.send_event(Gst.Event.new_eos())
 
@@ -80,13 +81,17 @@ class GStreamerHotBuffer:
             self._thread = None
 
     def latest(self, seconds: int | None = None) -> list[BufferedFrame]:
-        return self.buffer.latest(seconds)
+        window = seconds if seconds is not None else self.seconds
+        return self._buffer.latest(window)
 
     def frame_at(self, timestamp: datetime) -> BufferedFrame | None:
-        return self.buffer.search_frame(timestamp)
+        return self._buffer.frame_at(timestamp)
+
+    def frames_between(self, start_time: datetime, end_time: datetime) -> list[BufferedFrame]:
+        return self._buffer.frames_between(start_time, end_time)
 
     def stats(self) -> dict[str, int]:
-        return self.buffer.stats()
+        return self._buffer.stats()
 
     def _rtp_probe(self, pad, info):
         buf = info.get_buffer()
@@ -100,26 +105,49 @@ class GStreamerHotBuffer:
         marker = GstRtp.RTPBuffer.get_marker(rtp)
         ext = GstRtp.RTPBuffer.get_extension_data(rtp)
 
-        if marker and ext:
+        if marker and ext and buf.pts != Gst.CLOCK_TIME_NONE:
             ext_data, ext_id = ext
 
             if ext_id == 0xABAC:
                 payload = ext_data.get_data()
                 ntp_seconds = int.from_bytes(payload[0:4], "big")
                 ntp_fraction = int.from_bytes(payload[4:8], "big")
-                self._timestamps.append(ntp_to_datetime(ntp_seconds, ntp_fraction))
+                camera_time = ntp_to_datetime(ntp_seconds, ntp_fraction)
+
+                with self._pts_lock:
+                    self._pts_to_camera_time.append((buf.pts, camera_time))
 
         GstRtp.RTPBuffer.unmap(rtp)
         return Gst.PadProbeReturn.OK
 
+    def _camera_time_for_pts(self, pts: int) -> datetime | None:
+        with self._pts_lock:
+            if not self._pts_to_camera_time:
+                return None
+
+            closest_pts, closest_time = min(
+                self._pts_to_camera_time,
+                key=lambda item: abs(item[0] - pts),
+            )
+
+            if abs(closest_pts - pts) > Gst.SECOND:
+                return None
+
+            return closest_time
+
     def _on_sample(self, sink):
         sample = sink.emit("pull-sample")
-        if sample is None or not self._timestamps:
+        if sample is None:
             return Gst.FlowReturn.OK
 
-        camera_time = self._timestamps.popleft()
-
         buf = sample.get_buffer()
+        if buf.pts == Gst.CLOCK_TIME_NONE:
+            return Gst.FlowReturn.OK
+
+        camera_time = self._camera_time_for_pts(buf.pts)
+        if camera_time is None:
+            return Gst.FlowReturn.OK
+
         caps = sample.get_caps()
         info = caps.get_structure(0)
 
@@ -140,7 +168,11 @@ class GStreamerHotBuffer:
 
         if self.max_width > 0 and width > self.max_width:
             new_height = int(height * (self.max_width / float(width)))
-            frame = cv2.resize(frame, (self.max_width, new_height), interpolation=cv2.INTER_AREA)
+            frame = cv2.resize(
+                frame,
+                (self.max_width, new_height),
+                interpolation=cv2.INTER_AREA,
+            )
             height, width = frame.shape[:2]
 
         encode_params = [int(cv2.IMWRITE_JPEG_QUALITY), int(self.jpeg_quality)]
@@ -148,7 +180,7 @@ class GStreamerHotBuffer:
         if not ok:
             return Gst.FlowReturn.OK
 
-        self.buffer.append(
+        self._buffer.append(
             BufferedFrame(
                 timestamp=camera_time,
                 jpeg_bytes=encoded.tobytes(),
@@ -156,13 +188,32 @@ class GStreamerHotBuffer:
                 height=height,
             )
         )
+        self._sample_count += 1
+        if self._sample_count <= 3 or self._sample_count % 50 == 0:
+            print(
+                f"[camera:{self.camera_id}][hot-buffer] sample={self._sample_count} "
+                f"ts={camera_time.isoformat()} size={width}x{height}"
+            )
 
         return Gst.FlowReturn.OK
 
+    def _on_bus_error(self, bus, message):
+        err, debug = message.parse_error()
+        print(f"[camera:{self.camera_id}][hot-buffer] ERROR: {err}")
+        if debug:
+            print(f"[camera:{self.camera_id}][hot-buffer] ERROR debug: {debug}")
+        if self._loop is not None:
+            self._loop.quit()
+
+    def _on_bus_warning(self, bus, message):
+        warn, debug = message.parse_warning()
+        print(f"[camera:{self.camera_id}][hot-buffer] WARNING: {warn}")
+        if debug:
+            print(f"[camera:{self.camera_id}][hot-buffer] WARNING debug: {debug}")
+
     def _run(self) -> None:
         Gst.init(None)
-
-        frame_interval = max(1, int(30 / self.fps))
+        print(f"[camera:{self.camera_id}][hot-buffer] starting pipeline rtsp={self.rtsp_url}")
 
         self._pipeline = Gst.parse_launch(
             f"""
@@ -191,7 +242,10 @@ class GStreamerHotBuffer:
         bus = self._pipeline.get_bus()
         bus.add_signal_watch()
         bus.connect("message::eos", lambda *_: self._loop.quit())
+        bus.connect("message::error", self._on_bus_error)
+        bus.connect("message::warning", self._on_bus_warning)
 
-        self._pipeline.set_state(Gst.State.PLAYING)
+        state_change = self._pipeline.set_state(Gst.State.PLAYING)
+        print(f"[camera:{self.camera_id}][hot-buffer] set_state(PLAYING) -> {state_change.value_nick}")
         self._loop.run()
         self._pipeline.set_state(Gst.State.NULL)

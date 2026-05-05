@@ -8,6 +8,17 @@ Hemsidan kan göra en get request för att få tillgång till vår analys.
 I nuläget får man med en söksträng tillbaka en bild som matchar denna sökning.  
 http://localhost:8000/api/image/[search query]
 
+För att rensa allt data i SQLite-databasen och ta bort alla inspelningar i `database/recordings/1`:
+
+`POST http://localhost:8000/reset`
+
+Requesten ska inte skickas med argument/body.  
+Kompatibilitet finns också för `PATCH /reset` och `/api/admin/reset`.
+
+Exempel på svar:
+
+`{"status":"ok","deleted_database_file":true,"deleted_recordings":34}`
+
 ## Spara analys
 I nuläget sparas endast en sträng med en förklaring för utvalda bilder. Dessa sparas via en tidsstämpel.  
 
@@ -29,7 +40,8 @@ created at
 list of all timestamps in json
 LLM description
 embedding for description
-like/dislike
+number of tokens
+feedback (0-5)
 
 sequence description varied 
 -----
@@ -39,7 +51,8 @@ created at
 list of all timestamps in json
 LLM description
 embedding for description
-like/dislike
+number of tokens
+feedback (0-5)
 
 snapshot description
 -----
@@ -47,7 +60,8 @@ timestamp (primary key)
 created at
 LLM description
 embedding for description
-like/dislike
+number of tokens
+feedback (0-5)
 
 full frame description
 -----
@@ -55,4 +69,5 @@ timestamp (primary key)
 created at
 LLM description
 embedding for description
-like/dislike
+number of tokens
+feedback (0-5)

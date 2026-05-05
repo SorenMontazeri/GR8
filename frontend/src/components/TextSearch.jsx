@@ -4,7 +4,7 @@ function TextSearch({searchString, setString}) {
     <div className="my-4">
       <input
         type="text"
-        placeholder="Skriv in ett namn..."
+        placeholder="Search for event"
         value={searchString}
         /* Updates the state in App.jsx every time the user types */
         onChange={(e) => setString(e.target.value)}

@@ -279,8 +279,8 @@ class Camera:
                     f"target={match_target_time.isoformat()} matched={matched_full_frame.timestamp.isoformat()}"
                 )
 
-            selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
-            selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
+            selection_1_images, selection_1_timestamps = __import__("ingestion.analysis.frame_selection", fromlist=["frame_selection_uniform"]).frame_selection_uniform(getattr(self.hot_buffer, "_buffer", None), target_start_time, target_end_time)
+            selection_2_images, selection_2_timestamps = __import__("ingestion.analysis.frame_selection", fromlist=["frame_selection_movement"]).frame_selection_movement(getattr(self.hot_buffer, "_buffer", None), target_start_time, target_end_time, 90)
 
 
             try:

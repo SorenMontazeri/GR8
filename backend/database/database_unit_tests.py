@@ -174,6 +174,9 @@ class DatabaseUnitTests(unittest.TestCase):
                     snapshot_timestamp=start,
                     full_frame_timestamp=end,
                     snapshot_image_base64=snapshot_b64,
+                    full_frame_image_base64=snapshot_b64,
+                    uniform_images_base64=[snapshot_b64],
+                    varied_images_base64=[snapshot_b64],
                     uniform_number_of_tokens=11,
                     varied_number_of_tokens=22,
                     snapshot_number_of_tokens=33,
@@ -199,6 +202,51 @@ class DatabaseUnitTests(unittest.TestCase):
             self.assertEqual(result["snapshot"]["number_of_tokens"], 33)
             self.assertEqual(result["full_frame"]["number_of_tokens"], 44)
 
+    def test_save_description_bundle_can_skip_full_frame_and_sequences(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
+            start = datetime(2026, 3, 2, 10, 0, 0)
+            end = datetime(2026, 3, 2, 10, 0, 10)
+            created_at = datetime(2026, 3, 2, 10, 0, 11)
+            snapshot_b64 = base64.b64encode(b"snapshot").decode("utf-8")
+
+            with patch.object(self.db_module, "embed", return_value=[0.1, 0.2, 0.3]):
+                ids = self.db_module.save_description_bundle(
+                    timestamp_start=start,
+                    timestamp_end=end,
+                    created_at=created_at,
+                    uniform_llm_description=None,
+                    varied_llm_description=None,
+                    snapshot_llm_description="snapshot",
+                    full_frame_llm_description=None,
+                    snapshot_timestamp=start,
+                    snapshot_image_base64=snapshot_b64,
+                )
+
+            self.assertIsNone(ids["sequence_description_uniform_id"])
+            self.assertIsNone(ids["sequence_description_varied_id"])
+            self.assertIsNone(ids["full_frame_description_id"])
+            self.assertIsNotNone(ids["snapshot_description_id"])
+
+            with patch.object(
+                self.db_module,
+                "find_best_event",
+                return_value={
+                    "group_id": ids["description_group_id"],
+                    "score": 0.99,
+                    "matched_type": "snapshot",
+                    "matched_row_id": ids["snapshot_description_id"],
+                },
+            ), patch.object(self.db_module, "_images_from_timestamps", return_value=[]), patch.object(
+                self.db_module, "_safe_image_from_iso", return_value=None
+            ):
+                result = self.db_module.get_events("snapshot")
+
+            self.assertIsNone(result["uniform"])
+            self.assertIsNone(result["varied"])
+            self.assertIsNone(result["full_frame"])
+            self.assertEqual(result["snapshot"]["image"], snapshot_b64)
+
     def test_update_feedback_accepts_values_0_to_5(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.db_module.DB_PATH = Path(tmp) / "analysis.sqlite"
@@ -215,6 +263,9 @@ class DatabaseUnitTests(unittest.TestCase):
                     varied_llm_description="varied",
                     snapshot_llm_description="snapshot",
                     full_frame_llm_description="full_frame",
+                    uniform_images_base64=["uniform-image"],
+                    varied_images_base64=["varied-image"],
+                    full_frame_image_base64="full-frame-image",
                 )
 
             group_id = ids["description_group_id"]

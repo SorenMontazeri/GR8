@@ -803,10 +803,10 @@ def save_description_bundle(
     timestamp_start: datetime | str,
     timestamp_end: datetime | str,
     created_at: datetime | str,
-    uniform_llm_description: str,
-    varied_llm_description: str,
+    uniform_llm_description: str | None,
+    varied_llm_description: str | None,
     snapshot_llm_description: str,
-    full_frame_llm_description: str,
+    full_frame_llm_description: str | None,
     uniform_timestamps: list[datetime | str] | None = None,
     varied_timestamps: list[datetime | str] | None = None,
     snapshot_timestamp: datetime | str | None = None,
@@ -819,7 +819,7 @@ def save_description_bundle(
     varied_number_of_tokens: int | None = None,
     snapshot_number_of_tokens: int | None = None,
     full_frame_number_of_tokens: int | None = None,
-) -> dict[str, int]:
+) -> dict[str, int | None]:
     start_iso = _to_iso(timestamp_start)
     end_iso = _to_iso(timestamp_end)
 
@@ -832,26 +832,33 @@ def save_description_bundle(
     if full_frame_timestamp is None:
         full_frame_timestamp = end_iso
 
-    uniform_id = save_sequence_description_uniform(
-        timestamp_start=start_iso,
-        timestamp_end=end_iso,
-        created_at=created_at,
-        timestamps=uniform_timestamps,
-        llm_description=uniform_llm_description,
-        images_base64=uniform_images_base64,
-        description_embedding=json.dumps(embed(uniform_llm_description)),
-        number_of_tokens=uniform_number_of_tokens,
-    )
-    varied_id = save_sequence_description_varied(
-        timestamp_start=start_iso,
-        timestamp_end=end_iso,
-        created_at=created_at,
-        timestamps=varied_timestamps,
-        llm_description=varied_llm_description,
-        images_base64=varied_images_base64,
-        description_embedding=json.dumps(embed(varied_llm_description)),
-        number_of_tokens=varied_number_of_tokens,
-    )
+    uniform_id = None
+    varied_id = None
+
+    if uniform_llm_description is not None and uniform_timestamps is not None and uniform_images_base64:
+        uniform_id = save_sequence_description_uniform(
+            timestamp_start=start_iso,
+            timestamp_end=end_iso,
+            created_at=created_at,
+            timestamps=uniform_timestamps,
+            llm_description=uniform_llm_description,
+            images_base64=uniform_images_base64,
+            description_embedding=json.dumps(embed(uniform_llm_description)),
+            number_of_tokens=uniform_number_of_tokens,
+        )
+
+    if varied_llm_description is not None and varied_timestamps is not None and varied_images_base64:
+        varied_id = save_sequence_description_varied(
+            timestamp_start=start_iso,
+            timestamp_end=end_iso,
+            created_at=created_at,
+            timestamps=varied_timestamps,
+            llm_description=varied_llm_description,
+            images_base64=varied_images_base64,
+            description_embedding=json.dumps(embed(varied_llm_description)),
+            number_of_tokens=varied_number_of_tokens,
+        )
+
     snapshot_id = save_snapshot_description(
         timestamp=snapshot_timestamp,
         created_at=created_at,
@@ -860,14 +867,16 @@ def save_description_bundle(
         description_embedding=json.dumps(embed(snapshot_llm_description)),
         number_of_tokens=snapshot_number_of_tokens,
     )
-    full_frame_id = save_full_frame_description(
-        timestamp=full_frame_timestamp,
-        created_at=created_at,
-        llm_description=full_frame_llm_description,
-        image_base64=full_frame_image_base64,
-        description_embedding=json.dumps(embed(full_frame_llm_description)),
-        number_of_tokens=full_frame_number_of_tokens,
-    )
+    full_frame_id = None
+    if full_frame_llm_description is not None and full_frame_timestamp is not None and full_frame_image_base64 is not None:
+        full_frame_id = save_full_frame_description(
+            timestamp=full_frame_timestamp,
+            created_at=created_at,
+            llm_description=full_frame_llm_description,
+            image_base64=full_frame_image_base64,
+            description_embedding=json.dumps(embed(full_frame_llm_description)),
+            number_of_tokens=full_frame_number_of_tokens,
+        )
     group_id = save_description_group(
         timestamp_start=start_iso,
         timestamp_end=end_iso,

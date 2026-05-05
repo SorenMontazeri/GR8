@@ -172,7 +172,7 @@ class Camera:
     async def _run_analysis(
         self,
         snapshot_b64: str,
-        full_frame_b64: str,
+        full_frame_b64: str | None,
         selection_1_images: list[str],
         selection_2_images: list[str],
     ) -> tuple[Any, Any, Any, Any]:
@@ -268,8 +268,8 @@ class Camera:
                     f"[camera:{self.camera_id}] no matching frame in hot buffer "
                     f"(tolerance_ms={self.frame_match_tolerance_ms})"
                 )
-                full_frame_b64 = snapshot_b64
-                full_frame_timestamp = snapshot_timestamp
+                full_frame_b64 = None
+                full_frame_timestamp = None
             else:
                 full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
                 full_frame_timestamp = matched_full_frame.timestamp
@@ -282,15 +282,6 @@ class Camera:
             selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
             selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
 
-            # Temporary solution for short consolodated, might have to prune short consolodated
-            if not selection_1_images and not selection_1_timestamps:
-                selection_1_images = [full_frame_b64]
-                selection_1_timestamps = [full_frame_timestamp]
-
-            if not selection_2_images and not selection_2_timestamps:
-                selection_2_images = [full_frame_b64]
-                selection_2_timestamps = [full_frame_timestamp]
-
 
             try:
                 future = asyncio.run_coroutine_threadsafe(
@@ -302,34 +293,42 @@ class Camera:
                     ),
                     self._async_loop,
                 )
-                response_snapshot, response_full_frame, response_selection_1, response_selection_2 = future.result(timeout=60)
+                analysis_results = future.result(timeout=60)
 
             except Exception as exc:
                 print(f"[camera:{self.camera_id}] analysis failed: {exc}")
                 return
-            
+
+            response_snapshot = analysis_results["snapshot"]
+            response_full_frame = analysis_results.get("full_frame")
+            response_selection_1 = analysis_results.get("uniform")
+            response_selection_2 = analysis_results.get("varied")
+
             print(response_snapshot)
-            print(response_full_frame)
-            print(response_selection_1)
-            print(response_selection_2)
+            if response_full_frame is not None:
+                print(response_full_frame)
+            if response_selection_1 is not None:
+                print(response_selection_1)
+            if response_selection_2 is not None:
+                print(response_selection_2)
 
             try:
                 save_description_bundle(
                     timestamp_start=target_start_time,
                     timestamp_end=target_end_time,
                     created_at=datetime.now(timezone.utc),
-                    uniform_llm_description=response_selection_1["description"],
-                    varied_llm_description=response_selection_2["description"],
+                    uniform_llm_description=response_selection_1["description"] if response_selection_1 is not None else None,
+                    varied_llm_description=response_selection_2["description"] if response_selection_2 is not None else None,
                     snapshot_llm_description=response_snapshot["description"],
-                    full_frame_llm_description=response_full_frame["description"],
-                    uniform_timestamps=selection_1_timestamps,
-                    varied_timestamps=selection_2_timestamps,
+                    full_frame_llm_description=response_full_frame["description"] if response_full_frame is not None else None,
+                    uniform_timestamps=selection_1_timestamps if response_selection_1 is not None else None,
+                    varied_timestamps=selection_2_timestamps if response_selection_2 is not None else None,
                     snapshot_timestamp=snapshot_timestamp,
                     full_frame_timestamp=full_frame_timestamp,
                     snapshot_image_base64=snapshot_b64,
                     full_frame_image_base64=full_frame_b64,
-                    uniform_images_base64=selection_1_images,
-                    varied_images_base64=selection_2_images,
+                    uniform_images_base64=selection_1_images if response_selection_1 is not None else None,
+                    varied_images_base64=selection_2_images if response_selection_2 is not None else None,
                 )
             except Exception as exc:
                 print(f"[camera:{self.camera_id}] saving to database failed: {exc}")

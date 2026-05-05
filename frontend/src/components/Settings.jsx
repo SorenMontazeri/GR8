@@ -122,7 +122,7 @@ export default function SettingsPanel() {
             />
           </label>
 
-          <label className={labelClass}>
+          {/* <label className={labelClass}>
             <span className={labelTextClass}>Prompt till LLM fullframe och snapshot</span>
             <textarea
               className={`${inputClass} min-h-20 resize-y`}
@@ -142,7 +142,7 @@ export default function SettingsPanel() {
               value={settings.prompt_uniform_movement}
               onChange={handleChange}
             />
-          </label>
+          </label> */}
         </SettingsSection>
 
         <SettingsSection title="Fullframe">
@@ -170,9 +170,9 @@ export default function SettingsPanel() {
           </label>
         </SettingsSection>
 
-        <SettingsSection title="Frames uniform">
+        <SettingsSection title="Sekvens tidsintervall">
           <label className={labelClass}>
-            <span className={labelTextClass}>Uniform frame metod</span>
+            <span className={labelTextClass}>Metod för antal bilder</span>
             <select
               className={inputClass}
               name="uniform_samplerate"
@@ -181,12 +181,12 @@ export default function SettingsPanel() {
             >
               <option value="1">Auto</option>
               <option value="2">Percent</option>
-              <option value="3">Antal frames</option>
+              <option value="3">Antal bilder</option>
             </select>
           </label>
 
           <label className={labelClass}>
-            <span className={labelTextClass}>Uniform frame method value</span>
+            <span className={labelTextClass}>Antal bilder/procent per sekund</span>
             <input
               type="number"
               min="0"
@@ -199,9 +199,9 @@ export default function SettingsPanel() {
           </label>
         </SettingsSection>
 
-        <SettingsSection title="Frames movement">
+        <SettingsSection title="Sekvens rörelsedetektion">
           <label className={labelClass}>
-            <span className={labelTextClass}>Movement method</span>
+            <span className={labelTextClass}>Metod för rörelsedetektion</span>
             <select
               className={inputClass}
               name="movement_tracker_type"
@@ -209,12 +209,12 @@ export default function SettingsPanel() {
               onChange={handleChange}
             >
               <option value="1">MQTT boxes</option>
-              <option value="2">Frame change</option>
+              <option value="2">Vid förändring</option>
             </select>
           </label>
 
           <label className={labelClass}>
-            <span className={labelTextClass}>Hur stor andring for nasta frame</span>
+            <span className={labelTextClass}>Hur stor förändring ska ske i bilden</span>
             <input
               type="number"
               min="0"
@@ -226,7 +226,7 @@ export default function SettingsPanel() {
           </label>
 
           <label className={labelClass}>
-            <span className={labelTextClass}>Movement frame metod</span>
+            <span className={labelTextClass}>Metod för antal bilder vid rörelse</span>
             <select
               className={inputClass}
               name="movement_samplerate"
@@ -240,7 +240,7 @@ export default function SettingsPanel() {
           </label>
 
           <label className={labelClass}>
-            <span className={labelTextClass}>Movement frame metod varde</span>
+            <span className={labelTextClass}>Antal bilder/procent per sekund</span>
             <input
               type="number"
               min="0"

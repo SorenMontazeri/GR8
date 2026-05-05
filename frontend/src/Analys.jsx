@@ -92,12 +92,12 @@ function Analys({ goHome }) {
           
           <div className="pt-8 space-y-4 border-t border-gray-500/30">
             <div className="flex justify-between max-w-sm italic text-gray-200">
-              <p>Uniform:</p> 
+              <p>Tidsintervall:</p> 
               <p className="text-[#FFCC00] not-italic font-bold">{stats.uniform}</p>
             </div>
             
             <div className="flex justify-between max-w-sm italic text-gray-200">
-              <p>Variered:</p> 
+              <p>Rörelsedetektion:</p> 
               <p className="text-[#FFCC00] not-italic font-bold">{stats.varied}</p>
             </div>
           </div>
@@ -107,7 +107,7 @@ function Analys({ goHome }) {
       onClick={handleClear}
       className="mt-8 bg-[#FFCC00] hover:bg-[#E6AD00] text-black rounded px-4 py-2"
     >
-      Clear analysis
+      Nollställ analys
     </button>
     </div>
   );

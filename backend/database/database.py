@@ -4,9 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import base64
 import csv
+import importlib.util
 import json
 import os
 import shutil
+import sys
 
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
@@ -14,7 +16,13 @@ from sentence_transformers import SentenceTransformer
 try:
     from database import settings_editor
 except ImportError:
-    import settings_editor
+    settings_editor_path = Path(__file__).with_name("settings_editor.py")
+    spec = importlib.util.spec_from_file_location("settings_editor", settings_editor_path)
+    if spec is None or spec.loader is None:
+        raise
+    settings_editor = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("settings_editor", settings_editor)
+    spec.loader.exec_module(settings_editor)
 
 import sqlite3
 
@@ -49,7 +57,6 @@ FEEDBACK_TARGETS = {
     "uniform": ("sequence_description_uniform", "sequence_description_uniform_id"),
     "varied": ("sequence_description_varied", "sequence_description_varied_id"),
     "snapshot": ("snapshot_description", "snapshot_description_id"),
-    "fullframe": ("full_frame_description", "full_frame_description_id"),
     "fullframe": ("full_frame_description", "full_frame_description_id"),
     "full_frame": ("full_frame_description", "full_frame_description_id"),
 }
@@ -275,30 +282,6 @@ def get_stats():
 @app.post("/api/feedback", status_code=204)
 def post_feedback(payload: FeedbackRequest):
     update_feedback(payload.description_type, payload.id, payload.feedback)
-
-
-@app.get("/api/stats")
-def get_stats():
-    create_database()
-    conn = sqlite3.connect(DB_PATH)
-    cur = conn.cursor()
-
-    # Här använder vi de nya namnen uniform/varied
-    stats = {}
-    mapping = {
-        "snapshot": "snapshot_description",
-        "fullframe": "full_frame_description",
-        "uniform": "sequence_description_uniform",
-        "varied": "sequence_description_varied",
-    }
-
-    for key, table in mapping.items():
-        cur.execute(f"SELECT SUM(feedback) FROM {table}")
-        res = cur.fetchone()
-        stats[key] = res if res and res is not None else 0
-
-    conn.close()
-    return stats
 
 
 @app.post("/api/admin/reset")
@@ -588,6 +571,36 @@ def save_analysis(created_at: datetime, description: str) -> int:
     return row_id
 
 
+def timestamp_from_description(description: str) -> str | None:
+    create_database()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT created_at
+        FROM analysis
+        WHERE description = ?
+        ORDER BY id DESC
+        LIMIT 1;
+        """,
+        (description,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row is not None else None
+
+
+@app.get("/api/image/{description}")
+def get_image(description: str):
+    timestamp = timestamp_from_description(description)
+    if timestamp is None:
+        raise HTTPException(status_code=404, detail="No timestamp for this description")
+    return {
+        "name": description,
+        "image": image_from_timestamp(datetime.fromisoformat(timestamp)),
+    }
+
+
 def save_sequence_description_uniform(
     timestamp_start: datetime | str,
     timestamp_end: datetime | str,
@@ -732,7 +745,15 @@ def save_full_frame_description(
             description_embedding, number_of_tokens, feedback
         ) VALUES (?, ?, ?, ?, ?, ?, ?);
         """,
-        (_to_iso(timestamp), image_base64, _to_iso(created_at), llm_description, description_embedding, feedback),
+        (
+            _to_iso(timestamp),
+            image_base64,
+            _to_iso(created_at),
+            llm_description,
+            description_embedding,
+            number_of_tokens,
+            feedback,
+        ),
     )
     conn.commit()
     row_id = cur.lastrowid
@@ -794,6 +815,10 @@ def save_description_bundle(
     full_frame_image_base64: str | None = None,
     uniform_images_base64: list[str] | None = None,
     varied_images_base64: list[str] | None = None,
+    uniform_number_of_tokens: int | None = None,
+    varied_number_of_tokens: int | None = None,
+    snapshot_number_of_tokens: int | None = None,
+    full_frame_number_of_tokens: int | None = None,
 ) -> dict[str, int]:
     start_iso = _to_iso(timestamp_start)
     end_iso = _to_iso(timestamp_end)
@@ -864,26 +889,52 @@ def save_description_bundle(
 def image_from_timestamp(t, clip=10):
     local_t = t.astimezone(RECORDINGS_TZ) if t.tzinfo is not None else t.replace(tzinfo=RECORDINGS_TZ)
 
-    if not INDEX_PATH.exists():
+    if INDEX_PATH.exists():
+        with INDEX_PATH.open(newline="") as index_file:
+            rows = list(csv.DictReader(index_file))
+
+        for row in rows:
+            start = datetime.fromisoformat(row["segment_start_camera_time"])
+            end = datetime.fromisoformat(row["segment_end_camera_time"])
+            if start <= local_t <= end:
+                video_path = Path(row["file_name"])
+                if not video_path.is_absolute():
+                    video_path = Path(RECORDINGS_DIR) / video_path
+                cap = cv2.VideoCapture(str(video_path))
+                cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, (local_t - start).total_seconds()) * 1000.0)
+                ok, frame = cap.read()
+                cap.release()
+                if not ok:
+                    raise RuntimeError("Kunde inte läsa frame")
+
+                _, buffer = cv2.imencode(".jpg", frame)
+                return base64.b64encode(buffer).decode("utf-8")
+
+        print(
+            f"[database] No indexed recording matched {local_t.isoformat()} in {INDEX_PATH}. "
+            f"Falling back to filename scan."
+        )
+
+    recordings_dir = Path(RECORDINGS_DIR)
+    if not recordings_dir.is_dir():
         message = (
-            f"Ingen matchande video: index file does not exist "
-            f"(index={INDEX_PATH}, timestamp={local_t.isoformat()})"
+            f"Ingen matchande video: recordings directory does not exist "
+            f"(dir={recordings_dir}, timestamp={local_t.isoformat()})"
         )
         print(f"[database] {message}")
         raise FileNotFoundError(message)
 
-    with INDEX_PATH.open(newline="") as index_file:
-        rows = list(csv.DictReader(index_file))
-
-    for row in rows:
-        start = datetime.fromisoformat(row["segment_start_camera_time"])
-        end = datetime.fromisoformat(row["segment_end_camera_time"])
-        if start <= local_t <= end:
-            video_path = Path(row["file_name"])
-            if not video_path.is_absolute():
-                video_path = RECORDINGS_DIR / video_path
+    filenames = sorted(os.listdir(recordings_dir))
+    for filename in filenames:
+        try:
+            start = datetime.strptime(filename, "D%Y-%m-%d-T%H-%M-%S.mp4").replace(tzinfo=RECORDINGS_TZ)
+        except ValueError:
+            continue
+        if start <= local_t < start + timedelta(seconds=clip):
+            video_path = recordings_dir / filename
             cap = cv2.VideoCapture(str(video_path))
-            cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, (local_t - start).total_seconds()) * 1000.0)
+            frame_number = int((local_t - start).total_seconds() * cap.get(cv2.CAP_PROP_FPS))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
             ok, frame = cap.read()
             cap.release()
             if not ok:
@@ -892,9 +943,10 @@ def image_from_timestamp(t, clip=10):
             _, buffer = cv2.imencode(".jpg", frame)
             return base64.b64encode(buffer).decode("utf-8")
 
+    sample_files = ", ".join(filenames[:5]) if filenames else "no files found"
     message = (
-        f"Ingen matchande video for timestamp {local_t.isoformat()} in {INDEX_PATH}. "
-        f"Checked {len(rows)} index row(s)."
+        f"Ingen matchande video for timestamp {local_t.isoformat()} in {recordings_dir}. "
+        f"Checked {len(filenames)} file(s). Sample: {sample_files}"
     )
     print(f"[database] {message}")
     raise FileNotFoundError(message)

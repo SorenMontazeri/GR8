@@ -11,7 +11,6 @@ import numpy as np
 
 from ingestion.buffers.rtsp_hot_buffer import BufferedFrame, FrameRingBuffer
 
-
 def load_settings():
     settings_path = Path(__file__).resolve().parents[2] / "database" / "settings.json"
     with open(settings_path, "r", encoding="utf-8") as f:
@@ -21,7 +20,7 @@ def load_settings():
 def encode_frame(frame: BufferedFrame) -> str:
     return base64.b64encode(frame.jpeg_bytes).decode("utf-8")
 
-
+# Returns the number of frames to select based on the duration and settings.
 def _uniform_frame_count(
     frame_buffer: FrameRingBuffer,
     start_time: datetime,
@@ -55,9 +54,9 @@ def _uniform_frame_count(
     if mode == 3:
         return max(1, int(value))
 
-    return 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3)))
+    return 1 if duration <= 1 else min(int(duration), max(5, int(duration / 3))) # Fallback if settings are invalid.
 
-
+# Selects frames uniformly across a time range
 def frame_selection_uniform(
     frame_buffer: FrameRingBuffer | None,
     start_time: datetime,
@@ -107,7 +106,7 @@ def _thumbnail(frame: BufferedFrame) -> np.ndarray:
     )
     return cv2.GaussianBlur(resized, (3, 3), 0)
 
-
+# The amount of pixels that need to change for a frame to be considered different. Loaded from settings.
 def _changed_pixel_ratio(left: np.ndarray, right: np.ndarray) -> float:
     settings = load_settings()
     pixel_threshold = settings.get("movement_tracker_type_threshhold", 30)

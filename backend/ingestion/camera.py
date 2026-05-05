@@ -54,22 +54,6 @@ class Camera:
         hot_buffer_backend: str = "opencv",
         raw_events_output_path: str | None = None,
     ) -> None:
-        
-        """
-        Initializes a Camera instance.
-
-        Sets up:
-        - RTSP connection and camera identifier
-        - MQTT client and event buffer
-        - Hot buffer for video frames
-        - Async event loop in a separate thread
-        - Thread pool for analysis tasks
-        - Recording (optional)
-        - Raw event storage to file
-
-        Acts as the main pipeline:
-        ingest → buffer → analysis → storage.
-        """
         self.camera_id = camera_id
         self.rtsp_url = rtsp_url
         self.recorder: GStreamerRecorder | None = None
@@ -117,11 +101,6 @@ class Camera:
         self.init_mqtt(broker_host, broker_port)
 
     def init_recording(self, segment_seconds: int) -> None:
-        """
-        Starts video recording using GStreamer.
-
-        Splits the recording into segments of the given duration (seconds).
-        """
         self.recorder = GStreamerRecorder(
             rtsp_url=self.rtsp_url,
             camera_id=self.camera_id,
@@ -130,24 +109,12 @@ class Camera:
         self.recorder.start()
 
     def init_mqtt(self, broker_host: str, broker_port: int) -> None:
-        """
-        Initializes MQTT connection:
-        - Connects to broker
-        - Sets message callback (on_message)
-        - Subscribes to the camera topic
-        - Starts background loop
-        """
         self.mqtt_client.connect(broker_host, broker_port, 60)
         self.mqtt_client.on_message = self.on_message
         self.mqtt_client.subscribe(f"camera/{self.camera_id}")
         self.mqtt_client.loop_start()
 
     def init_async_loop(self) -> None:
-        """
-        Starts a separate thread running an asyncio event loop.
-
-        Required to run async analysis tasks without blocking the main thread.
-        """
         self._async_thread = threading.Thread(
             target=self._async_loop_thread_main,
             name=f"camera-{self.camera_id}-async-loop",
@@ -159,12 +126,6 @@ class Camera:
             raise RuntimeError(f"[camera:{self.camera_id}] async loop failed to start")
 
     def _async_loop_thread_main(self) -> None:
-        """
-        Entry point for the async thread:
-        - Sets the event loop
-        - Signals that the loop is ready
-        - Runs the loop indefinitely
-        """
         asyncio.set_event_loop(self._async_loop)
         self._async_loop_ready.set()
         self._async_loop.run_forever()
@@ -172,20 +133,10 @@ class Camera:
     async def _run_analysis(
         self,
         snapshot_b64: str,
-        full_frame_b64: str | None,
+        full_frame_b64: str,
         selection_1_images: list[str],
         selection_2_images: list[str],
     ) -> tuple[Any, Any, Any, Any]:
-        
-        """
-        Runs multiple analysis queries in parallel via the analysis client.
-
-        Returns:
-        - Snapshot description
-        - Full frame description
-        - Selection 1 description
-        - Selection 2 description
-        """
         return await asyncio.gather(
             self.analysis_client.query_description_open([snapshot_b64]),
             self.analysis_client.query_description_open([full_frame_b64]),
@@ -194,14 +145,6 @@ class Camera:
         )
 
     def on_message(self, client, userdata, msg) -> None:
-        """
-        Callback for incoming MQTT messages.
-
-        Performs:
-        - JSON parsing of payload
-        - Stores raw event data
-        - Submits processing to thread pool (_process_message)
-        """
         try:
             payload = msg.payload.decode("utf-8", errors="replace")
             data = json.loads(payload)
@@ -227,17 +170,6 @@ class Camera:
         self._analysis_pool.submit(self._process_message, data)
 
     def _process_message(self, data: Dict[str, Any]) -> None:
-        """
-        Main logic for processing an MQTT event.
-
-        Steps:
-        1. Extract start/end timestamps
-        2. Retrieve snapshot image
-        3. Match snapshot with full frame from hot buffer
-        4. Select frame sequences (two strategies)
-        5. Run AI analysis asynchronously
-        6. Save results to database
-        """
         try:
             # Get necessary info
             package_start_time = self._extract_event_timestamp(data)
@@ -268,8 +200,8 @@ class Camera:
                     f"[camera:{self.camera_id}] no matching frame in hot buffer "
                     f"(tolerance_ms={self.frame_match_tolerance_ms})"
                 )
-                full_frame_b64 = None
-                full_frame_timestamp = None
+                full_frame_b64 = snapshot_b64
+                full_frame_timestamp = snapshot_timestamp
             else:
                 full_frame_b64 = base64.b64encode(matched_full_frame.jpeg_bytes).decode("utf-8")
                 full_frame_timestamp = matched_full_frame.timestamp
@@ -278,9 +210,19 @@ class Camera:
                     f"[camera:{self.camera_id}] full-frame match delta_ms={delta_ms} "
                     f"target={match_target_time.isoformat()} matched={matched_full_frame.timestamp.isoformat()}"
                 )
-
             selection_1_images, selection_1_timestamps = __import__("ingestion.analysis.frame_selection", fromlist=["frame_selection_uniform"]).frame_selection_uniform(getattr(self.hot_buffer, "_buffer", None), target_start_time, target_end_time)
             selection_2_images, selection_2_timestamps = __import__("ingestion.analysis.frame_selection", fromlist=["frame_selection_movement"]).frame_selection_movement(getattr(self.hot_buffer, "_buffer", None), target_start_time, target_end_time, 90)
+            #selection_1_images, selection_1_timestamps =  self.frame_selection_1(target_start_time, target_end_time)
+            #selection_2_images, selection_2_timestamps =  self.frame_selection_2(target_start_time, target_end_time, 90)
+
+            # Temporary solution for short consolodated, might have to prune short consolodated
+            if not selection_1_images and not selection_1_timestamps:
+                selection_1_images = [full_frame_b64]
+                selection_1_timestamps = [full_frame_timestamp]
+
+            if not selection_2_images and not selection_2_timestamps:
+                selection_2_images = [full_frame_b64]
+                selection_2_timestamps = [full_frame_timestamp]
 
 
             try:
@@ -293,42 +235,34 @@ class Camera:
                     ),
                     self._async_loop,
                 )
-                analysis_results = future.result(timeout=60)
+                response_snapshot, response_full_frame, response_selection_1, response_selection_2 = future.result(timeout=60)
 
             except Exception as exc:
                 print(f"[camera:{self.camera_id}] analysis failed: {exc}")
                 return
-
-            response_snapshot = analysis_results["snapshot"]
-            response_full_frame = analysis_results.get("full_frame")
-            response_selection_1 = analysis_results.get("uniform")
-            response_selection_2 = analysis_results.get("varied")
-
+            
             print(response_snapshot)
-            if response_full_frame is not None:
-                print(response_full_frame)
-            if response_selection_1 is not None:
-                print(response_selection_1)
-            if response_selection_2 is not None:
-                print(response_selection_2)
+            print(response_full_frame)
+            print(response_selection_1)
+            print(response_selection_2)
 
             try:
                 save_description_bundle(
                     timestamp_start=target_start_time,
                     timestamp_end=target_end_time,
                     created_at=datetime.now(timezone.utc),
-                    uniform_llm_description=response_selection_1["description"] if response_selection_1 is not None else None,
-                    varied_llm_description=response_selection_2["description"] if response_selection_2 is not None else None,
+                    uniform_llm_description=response_selection_1["description"],
+                    varied_llm_description=response_selection_2["description"],
                     snapshot_llm_description=response_snapshot["description"],
-                    full_frame_llm_description=response_full_frame["description"] if response_full_frame is not None else None,
-                    uniform_timestamps=selection_1_timestamps if response_selection_1 is not None else None,
-                    varied_timestamps=selection_2_timestamps if response_selection_2 is not None else None,
+                    full_frame_llm_description=response_full_frame["description"],
+                    uniform_timestamps=selection_1_timestamps,
+                    varied_timestamps=selection_2_timestamps,
                     snapshot_timestamp=snapshot_timestamp,
                     full_frame_timestamp=full_frame_timestamp,
                     snapshot_image_base64=snapshot_b64,
                     full_frame_image_base64=full_frame_b64,
-                    uniform_images_base64=selection_1_images if response_selection_1 is not None else None,
-                    varied_images_base64=selection_2_images if response_selection_2 is not None else None,
+                    uniform_images_base64=selection_1_images,
+                    varied_images_base64=selection_2_images,
                 )
             except Exception as exc:
                 print(f"[camera:{self.camera_id}] saving to database failed: {exc}")
@@ -338,12 +272,6 @@ class Camera:
 
 
     def _extract_event_timestamp(self, payload: Dict[str, Any]) -> datetime | None:
-        """
-        Extracts and parses 'start_time' from MQTT payload.
-
-        Returns UTC datetime or None on failure.
-        """
-
         start_time = payload.get("start_time")
         if isinstance(start_time, str) and start_time.strip():
             try:
@@ -357,12 +285,6 @@ class Camera:
         return None
     
     def _extract_event_end_time(self, payload: Dict[str, Any]) -> datetime | None:
-        """
-        Extracts and parses 'end_time' from MQTT payload.
-
-        Returns UTC datetime or None on failure.
-        """
-
         end_time = payload.get("end_time")
         if isinstance(end_time, str) and end_time.strip():
             try:
@@ -376,15 +298,6 @@ class Camera:
         return None
 
     def _extract_image_timestamp(self, image_payload: Dict[str, Any] | None) -> datetime | None:
-        """
-        Extracts timestamp from image metadata.
-
-        Tries multiple keys:
-        - timestamp
-        - time
-        - created_at
-        """
-
         if not isinstance(image_payload, dict):
             return None
 
@@ -407,16 +320,6 @@ class Camera:
         start_time: datetime,
         end_time: datetime,
     ) -> list[datetime]:
-        """
-        Generates candidate timestamps for frame matching.
-
-        Includes:
-        - Image timestamp
-        - Interval midpoint
-        - Start time
-        - End time
-        """
-
         candidates: list[datetime] = []
         image_time = self._extract_image_timestamp(image_payload)
         midpoint = start_time + ((end_time - start_time) / 2)
@@ -435,14 +338,6 @@ class Camera:
         start_time: datetime,
         end_time: datetime,
     ) -> tuple[datetime, BufferedFrame | None]:
-        """
-        Attempts to find a matching frame in the hot buffer.
-
-        Tries multiple candidate timestamps and returns:
-        - Best matching timestamp
-        - Corresponding frame (or None)
-        """
-
         for candidate in self._frame_match_candidates(image, start_time, end_time):
             frame = self.get_hot_buffer_frame_at(candidate, tolerance_ms=self.frame_match_tolerance_ms)
             if frame is not None:
@@ -460,16 +355,6 @@ class Camera:
         use_onvif_replay_ext: bool,
         backend: str,
     ) -> None:
-        """
-        Initializes the hot buffer for video frames.
-
-        Supports two backends:
-        - GStreamer
-        - OpenCV
-
-        Starts the buffer immediately.
-        """
-
         if backend == "gstreamer":
             from ingestion.gstreamer_hot_buffer import GStreamerHotBuffer
 
@@ -501,12 +386,6 @@ class Camera:
         self.hot_buffer.start()
 
     def get_hot_buffer_frames(self, seconds: int | None = None) -> List[BufferedFrame]:
-        """
-        Returns recent frames from the hot buffer.
-
-        Can optionally limit by time range (seconds).
-        """
-
         if self.hot_buffer is None:
             return []
         return self.hot_buffer.latest(seconds)
@@ -516,13 +395,6 @@ class Camera:
         target_timestamp: datetime,
         tolerance_ms: int | None = None,
     ) -> BufferedFrame | None:
-        """
-        Retrieves a frame closest to a given timestamp.
-
-        If tolerance is provided:
-        - Returns None if the frame is too far in time
-        """
-
         if self.hot_buffer is None:
             return None
         frame = self.hot_buffer.frame_at(target_timestamp)
@@ -539,10 +411,6 @@ class Camera:
         target_timestamp: datetime,
         tolerance_ms: Optional[int] = None,
     ) -> Optional[BufferedMqttEvent]:
-        """
-        Retrieves an MQTT event near a given timestamp.
-        """
-
         return self.mqtt_buffer.search_event(target_timestamp, tolerance_ms=tolerance_ms)
 
     def get_context_at(
@@ -550,15 +418,6 @@ class Camera:
         target_timestamp: datetime,
         tolerance_ms: Optional[int] = 500,
     ) -> Dict[str, Any]:
-        """
-        Returns combined context:
-        - Frame
-        - MQTT event
-        - Whether each was found
-
-        Useful for debugging and analysis.
-        """
-
         frame = self.get_hot_buffer_frame_at(target_timestamp)
         mqtt_event = self.get_mqtt_event_at(target_timestamp, tolerance_ms=tolerance_ms)
         return {
@@ -570,14 +429,6 @@ class Camera:
         }
 
     def frame_selection_1(self, start_time: datetime, end_time: datetime) -> tuple[list[str], list[datetime]]:
-        """
-        Simple uniform sampling of frames across a time range.
-
-        - Selects evenly spaced frames
-        - Avoids duplicates
-        - Returns base64-encoded images and timestamps
-        """
-
         if end_time < start_time:
             return [], []
 
@@ -614,16 +465,6 @@ class Camera:
         return selected_frames, selected_timestamps
     
     def frame_selection_2(self, start_time: datetime, end_time: datetime, max_change_percent: float, max_interval_seconds: int = 10) -> tuple[list[str], list[datetime]]:
-        """
-        Advanced frame selection based on visual changes.
-
-        - Uses image difference (OpenCV)
-        - Skips frames with minimal change
-        - Limits maximum time gap between selected frames
-
-        Useful for obtaining meaningful frames instead of uniform sampling.
-        """
-
         if end_time < start_time or max_change_percent < 0 or max_interval_seconds <= 0:
             return [], []
 
@@ -664,33 +505,15 @@ class Camera:
         return selected_frames, selected_timestamps
 
     def hot_buffer_stats(self) -> Dict[str, int]:
-        """
-        Returns statistics for the hot buffer:
-        - Number of frames
-        - Memory usage (bytes)
-        - Maximum limits
-        """
-
         if self.hot_buffer is None:
             return {"frames": 0, "bytes": 0, "max_frames": 0, "max_bytes": 0}
         return self.hot_buffer.stats()
 
     def mqtt_buffer_stats(self) -> Dict[str, int]:
-        """
-        Returns statistics for the MQTT buffer:
-        - Number of events
-        - Memory usage
-        """
-
         return self.mqtt_buffer.stats()
 
+    # For testing RTSP frames.
     def dump_latest_hot_buffer_frame(self, output_path: str = "debug_latest.jpg") -> bool:
-        """
-        Saves the most recent frame from the hot buffer to disk.
-
-        Useful for debugging the video stream.
-        """
-
         frames = self.get_hot_buffer_frames(5)
         if not frames:
             print(f"[camera:{self.camera_id}][buffer] no frames to dump")
@@ -708,16 +531,6 @@ class Camera:
         return True
 
     def stop_recording(self) -> None:
-        """
-        Stops all running components:
-        - Hot buffer
-        - MQTT client
-        - Thread pool
-        - Video recording
-
-        Should always be called on shutdown.
-        """
-
         if self.hot_buffer is not None:
             self.hot_buffer.stop()
             self.hot_buffer = None

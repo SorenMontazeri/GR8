@@ -137,6 +137,9 @@ class Camera:
         selection_1_images: list[str],
         selection_2_images: list[str],
     ) -> dict[str, Any]:
+        print("KOLLA LÄNGD")
+        print(len(selection_1_images))
+        print(len(selection_2_images))
         task_items: list[tuple[str, Any]] = [
             ("snapshot", self.analysis_client.query_description_open([snapshot_b64])),
         ]
@@ -176,14 +179,18 @@ class Camera:
         self._analysis_pool.submit(self._process_message, data)
 
     def _process_message(self, data: Dict[str, Any]) -> None:
+        
         try:
             # Get necessary info
             package_start_time = self._extract_event_timestamp(data)
             package_end_time = self._extract_event_end_time(data)
+            duration = (package_end_time-package_start_time).total_seconds()
             if package_start_time is None or package_end_time is None:
                 print(f"[camera:{self.camera_id}] missing mqtt timestamps")
                 return
-
+            if duration < 1:
+                print("duration too short")
+                return
             target_start_time = package_start_time
             target_end_time = package_end_time
 

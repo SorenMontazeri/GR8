@@ -28,7 +28,7 @@ class LLMClient:
         ValueError: If endpoint, api_key, or model is missing.
     """
 
-    def __init__(self, endpoint, api_key, model, timeout=30.0):
+    def __init__(self, endpoint, api_key, model, timeout=60.0):
         """
         Initialize the asynchronous LLM client.
 

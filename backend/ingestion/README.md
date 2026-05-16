@@ -1,500 +1,230 @@
-# Ingestion Module
+# Ingestion
 
-Detta dokument beskriver ingestion-modulens ansvar, dataflöde och hur ni kör/testar den.
+Den här mappen innehåller live-ingestion, simulatorn för replay och några äldre byggstenar för validering/normalisering av rå eventdata.
 
-## Syfte
+Det viktiga att förstå är att projektet idag har två huvudsakliga körvägar:
 
-Ingestion tar in rå eventdata (live via MQTT eller replay från fil, alltså consolidated data), validerar det, mappar till ett internt format (`InternalEvent`) och skickar vidare till nästa steg via callback.
+1. Live-ingestion via `backend/run_ingestion.py`
+2. Simulerad kamera via `backend/run_simulated_camera.py`
 
-Notera: live-vägen i `camera.py` använder just nu hotbuffer + analysclient direkt.
-Replay-vägen använder `ingestion_service.py` med validering/mappning.
+Den äldre `ingestion_service.py`-pipen finns kvar, men den är inte huvudvägen när ni kör vanlig livekamera idag.
 
-## Installation
+## Nuvarande entrypoints
 
-För att en helt ny användare ska kunna köra ingestion och den simulerade kameran behövs två typer av beroenden:
+### Live-ingestion
+Startas från `backend/run_ingestion.py`.
 
-1. Python-beroenden för backend
-2. Externa systemverktyg för RTSP och MQTT
+Det skriptet:
+- skapar ett `Camera`-objekt
+- kopplar upp RTSP
+- kopplar upp MQTT
+- startar videosegmentering
+- tar emot metadata
+- kör analys
+- sparar resultat i databasen
 
-### 1. Python-beroenden
-
-Kör från `GR8/backend`:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Detta installerar bland annat:
-- `fastapi`
-- `uvicorn`
-- `pytest`
-- `pytest-cov`
-- `httpx`
-- `python-dotenv`
-- `opencv-python`
-- `imageio-ffmpeg`
-- `paho-mqtt`
-
-### 2. Externa systemverktyg
-
-Den simulerade kameran kräver också:
-- `mediamtx` för RTSP-server
-- `mosquitto` för MQTT-broker
-
-Dessa installeras inte via `pip` och ligger därför inte i `requirements.txt`.
-
-På macOS med Homebrew:
+Exempel:
 
 ```bash
-brew install mediamtx mosquitto
-```
-
-Kontrollera gärna att de finns:
-
-```bash
-mediamtx --version
-mosquitto -h | head
-```
-
-### 3. Frontend
-
-Om du även vill testa sökning i UI behövs Node/npm.
-
-Kör från `GR8/frontend`:
-
-```bash
-npm install
-```
-
-### 4. Valfritt: riktig analys
-
-Om ingestion ska använda riktig analysmodell i stället för stub-analys behövs:
-
-```bash
+cd GR8/backend
+source venv/bin/activate
 export FACADE_API_KEY='din_nyckel'
+
+python run_ingestion.py \
+  --camera-id 1 \
+  --rtsp-url 'rtsp://student:student@192.168.0.90/axis-media/media.amp' \
+  --broker-host 10.255.255.1 \
+  --broker-port 1883 \
+  --hot-buffer-backend gstreamer
 ```
 
-Om ingen nyckel finns kan ni fortfarande testa flödet med stub-analys.
+Viktiga flaggor:
+- `--hot-buffer-backend {gstreamer,opencv}`
+- `--no-recording`
+- `--no-mqtt`
+- `--stub-analysis`
+- `--raw-events-output`
 
-## Översikt: Dataflöde
+### Simulerad kamera
+Startas från `backend/run_simulated_camera.py`.
 
-1. **Källa**
-- Live: `camera.py:on_message()` tar emot MQTT-payload.
-- Replay: `source/replay_reader.py:iter_replay_events()` läser JSON/JSONL.
+Det skriptet:
+- startar lokal RTSP-server via MediaMTX
+- startar lokal MQTT-broker via Mosquitto
+- bygger eller väljer en scenario-video
+- replayar rå MQTT-events i realtid
+- publicerar RTSP på `rtsp://127.0.0.1:8554/<camera_id>`
 
-2. **Raw event (replay-vägen)**
-- Replay-data paketeras som `RawEvent` med metadata som `received_at` och `source`.
+Exempel:
 
-3. **Validering**
-- `validation/validator.py:validate_raw_event()` kontrollerar grundkrav och klassar eventtyp.
+```bash
+cd GR8/backend
+source venv/bin/activate
 
-4. **Normalisering**
-- `normalization/mapper.py` mappar Axis-payload till `InternalEvent`.
-- `track_id` sätts från `payload["id"]` enligt nuvarande beslut.
+python run_simulated_camera.py \
+  --segment-range 305:315 \
+  --camera-id 1 \
+  --events replay_out/live/camera_1_20260503T211120Z.jsonl
+```
 
-5. **Forwarding**
-- `ingestion_service.py` skickar `InternalEvent` via en enkel callback (`on_internal_event`).
+När simulatorn kör används normalt följande ingest-config:
 
-6. **Live context-matchning (`camera.py`)**
-- MQTT-event läggs i `MqttEventRingBuffer`.
-- Närmaste RTSP-frame hämtas via timestamp.
-- `camera.get_context_at(...)` kan returnera både frame och matchande MQTT-event.
+```bash
+python run_ingestion.py \
+  --camera-id 1 \
+  --rtsp-url 'rtsp://127.0.0.1:8554/1' \
+  --broker-host 127.0.0.1 \
+  --broker-port 1883 \
+  --hot-buffer-backend opencv
+```
 
-## Liveflöde (`camera.py`)
+`opencv` är ofta mer robust för simulatorn i den här miljön, medan `gstreamer` är den bättre varianten när man vill hålla sig närmare kameratid i live-flödet.
+
+## Viktigaste filer
+
+### `camera.py`
+Det här är den centrala live-klassen.
 
 `Camera` ansvarar för:
-- start/stop av segmentinspelning via `record_ffmpeg.py`
-- MQTT-lyssning
-- RTSP hot buffer (frame-ringbuffer)
-- MQTT hot buffer (event-ringbuffer)
-- analysanrop + persistens (`save_analysis`) när context hittas
-
-### Möjliga analyslägen
-
-Nuvarande live-beteende i `camera.py` är:
-- MQTT-event -> närmaste frame i RTSP hot buffer -> analys -> `save_analysis(...)`
-
-Om ni vill bygga ut detta vidare är tre naturliga analyslägen:
-
-- `matched_frame`
-  - nuvarande beteende
-  - hämtar närmaste frame i RTSP hot buffer baserat på eventets timestamp
-- `snapshot`
-  - använder Axis snapshot direkt från MQTT-payloaden, typiskt `payload["image"]["data"]`
-  - bra när man vill analysera den lilla, fokuserade delbilden istället för hela scenen
-- `periodic_frame`
-  - analyserar senaste frame i hot buffer med ett fast intervall, till exempel var 5:e sekund
-  - användbart när analys inte ska vara beroende av att ett MQTT-event kommer exakt samtidigt
-  - intervallet kan också räknas ut från en bokstavlig sample ratio, till exempel `10%` av ett scenario, men aldrig snabbare än en analys per sekund
-
-En bra struktur för detta är att låta alla lägen dela samma analysväg:
-- välj bildkälla först
-- skicka bilden till samma analysclient
-- normalisera svaret till sökbara termer/keywords
-- spara via `save_analysis(...)`
-
-Obs:
-- Replay-vägen i `ingestion_service.py` och `normalization/mapper.py` sparar idag inte hela snapshot-bilden i `InternalEvent`
-- om snapshot-analys även ska fungera i replay behöver analysen ske före normalisering, eller så måste snapshot-data/referens bevaras
-
-### Hot buffer
-
-Hot buffern består av:
-- `BufferedFrame`: timestamp + JPEG-bytes + dimensioner
-- `FrameRingBuffer`: trådsäker ringbuffer med trimning
-- `BufferedMqttEvent`: timestamp + rå MQTT-payload
-- `MqttEventRingBuffer`: trådsäker ringbuffer för MQTT-event
-
-Standardkonfiguration:
-- tidsfönster: 30 sekunder
-- sampling: 5 FPS
-- max antal frames: 150
-- max minne: 50 MB (trimmas FIFO vid överskridning)
-- max MQTT-events: 300
-- max MQTT-buffer: 5 MB (trimmas FIFO vid överskridning)
-- JPEG-kvalitet: 70
-- nedskalning: max bredd 960 px
-
-Detta gör att bufferten håller stabil minnesnivå över tid.
-
-## Filansvar
-
-- `ingestion_service.py`: orchestration (validate -> map -> callback)
-- `camera.py`: live MQTT + RTSP hot buffer + recording lifecycle
-- `simulator/`: virtuell livekamera som spelar scenario som RTSP + MQTT
-- `buffers/rtsp_hot_buffer.py`: datastruktur + lookup för RTSP hot buffer
-- `buffers/mqtt_event_buffer.py`: datastruktur + lookup för MQTT hot buffer
-- `record_ffmpeg.py`: ffmpeg-baserad inspelning/segmentering
-- `source/replay_reader.py`: replayläsning och `RawEvent`-modell
-- `validation/validator.py`: grundvalidering av råhändelser
-- `normalization/mapper.py`: Axis -> `InternalEvent`
-- `tests/ingestion_tests/test_ingestion_replay_pipeline.py`: enkel replay-kedjetest
-- `tests/ingestion_tests/test_ingestion_live_camera.py`: live/on_message + hotbuffer-tester
-- `tests/ingestion_tests/test_ingestion_rtsp_hot_buffer_search_frame.py`: manuell RTSP-integration
-- `tests/ingestion_tests/test_ingestion_mqtt_context_matching.py`: matchning frame + MQTT-event via timestamp
-- `tests/ingestion_tests/test_ingestion_simulated_camera.py`: unit-tester för simulatorns scenario/tidsomskrivning/MQTT-schemaläggning
-- `tests/ingestion_tests/test_ingestion_simulated_live_camera_e2e.py`: manuellt end-to-end-test för simulerad livekamera
-
-## Simulerad livekamera
-
-Simulatorn låter er spela upp ett inspelat scenario som om det vore en riktig livekamera.
-
-V1 bygger på:
-- extern RTSP-server, rekommenderat MediaMTX
-- extern MQTT-broker
-- scenarioformat: `video.mp4` + `events.jsonl`
-
-Simulatorns ansvar:
-- pusha video till RTSP-server i realtid via ffmpeg
-- läsa JSONL med rå MQTT-payloads
-- räkna fram offset från originaltider
-- skriva om tidsfält till nutid
-- publicera omskrivna events på `camera/<camera_id>`
-
-Det går även att köra simulatorn i RTSP-only-läge utan MQTT:
-- använd `--no-mqtt`
-- då behövs ingen eventfil och ingen broker
-- bra för att verifiera att videoströmmen fungerar innan ni testar metadata-matchning
-
-Det går även att köra simulatorn i kontinuerligt loop-läge:
-- använd `--loop`
-- då loopas både RTSP-video och MQTT-scenario tills processen avbryts
-- bra när ni vill låta ingestion/analys ligga uppe länge och observera riktiga attribututskrifter
-
-Viktigt:
-- `camera.py` försöker nu använda `start_time` från MQTT-payload.
-- Om `start_time` saknas eller är trasig faller den tillbaka till `datetime.now(timezone.utc)`.
-- Därför måste simulatorn skriva om eventtiderna till nutid innan publicering.
-
-Kör simulatorn från `GR8/backend`:
-
-```bash
-PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video path/to/video.mp4 \
-  --events path/to/events.jsonl \
-  --camera-id 1 \
-  --broker-host 127.0.0.1 \
-  --broker-port 1883 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
-  --loop
-```
-
-Det enklaste standardläget för nya inspelningar är:
-- `--camera-id 1`
-- `--events replay_out/live_events.jsonl`
-- `--auto-filter-events`
-
-Då följer simulatorn samma `camera_id`-konvention som resten av projektet, och väljer själv rätt MQTT-event för videon.
-
-Om `--events` pekar på en större rå livefil, till exempel `replay_out/live_events.jsonl`, kan simulatorn själv filtrera fram rätt MQTT-event för videon. Då måste videon vara döpt som en vanlig recording-fil, till exempel `D2026-03-31-T14-04-45.mp4`, så att starttiden kan läsas från filnamnet:
-
-```bash
-PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
-  --events replay_out/live_events.jsonl \
-  --camera-id 1 \
-  --broker-host 127.0.0.1 \
-  --broker-port 1883 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
-  --auto-filter-events \
-  --loop
-```
-
-Det läget förändrar inte ingestionflödet. Det förändrar bara simulatorns förarbete:
-- simulatorn läser videons starttid från filnamnet
-- simulatorn läser videons längd
-- simulatorn väljer bara MQTT-event som faller inom videons tidsfönster
-- simulatorn publicerar sedan RTSP + MQTT som vanligt live
-
-Om inga event matchar videons tidsfönster avslutar simulatorn nu med ett tydligt fel i stället för att spela upp hela råfilen felaktigt.
-
-Det finns även en orkestrerare för hela appstacken för E2E-test:
-
-```bash
-cd GR8/backend
-source .venv/bin/activate
-python run_simulated_stack.py \
-  --camera-id 1 \
-  --api-key "$FACADE_API_KEY"
-```
-
-Det scriptet startar:
-- ingestion
-- database API
-- frontend
-
-och skriver allt i samma terminal med prefixade loggar.
-
-Om du bara vill starta den simulerade kameran och infrastrukturen, men köra ingestion separat:
-
-```bash
-cd GR8/backend
-source .venv/bin/activate
-python run_simulated_camera.py \
-  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
-  --events replay_out/live_events.jsonl \
-  --camera-id 1 \
-  --auto-filter-events \
-  --loop
-```
-
-Det scriptet startar:
-- `mediamtx`
-- `mosquitto`
-- simulatorn
-
-och skriver sedan ut RTSP-URL och MQTT-topic som ingestion kan ansluta mot.
-
-För att starta ingestion separat mot en live eller simulerad källa:
-
-```bash
-cd GR8/backend
-source .venv/bin/activate
-python run_ingestion.py \
-  --camera-id 1 \
-  --rtsp-url rtsp://127.0.0.1:8554/1 \
-  --broker-host 127.0.0.1 \
-  --broker-port 1883
-```
-
-Med riktig analys:
-
-```bash
-cd GR8/backend
-source .venv/bin/activate
-export FACADE_API_KEY='din_nyckel'
-python run_ingestion.py \
-  --camera-id 1 \
-  --rtsp-url rtsp://127.0.0.1:8554/1 \
-  --broker-host 127.0.0.1 \
-  --broker-port 1883
-```
-
-Med stub-analys:
-
-```bash
-python run_ingestion.py \
-  --camera-id 1 \
-  --rtsp-url rtsp://127.0.0.1:8554/1 \
-  --broker-host 127.0.0.1 \
-  --broker-port 1883 \
-  --stub-analysis
-```
-
-RTSP-only:
-
-```bash
-PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video path/to/video.mp4 \
-  --camera-id 1 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
-  --no-mqtt
-```
-
-Ingestion kan sedan ansluta transparent mot:
-- RTSP read URL: `rtsp://127.0.0.1:8554/1`
-- MQTT topic: `camera/1`
-
-### Rekommenderad lokal MediaMTX-konfiguration
-
-För att undvika skillnader mellan olika lokala MediaMTX-installationer finns en minimal projektkonfiguration i:
-- `backend/mediamtx.yml`
-
-Starta gärna RTSP-servern explicit med den filen:
-
-```bash
-cd GR8/backend
-mediamtx mediamtx.yml
-```
-
-Den konfigurationen:
-- öppnar RTSP på `:8554`
-- använder endast TCP för RTSP
-- accepterar publisher-baserade paths
-- använder en RTSP-path som följer `camera_id`, till exempel `1`
-
-## Körning
-
-Kör från `GR8/backend`.
-
-Replay-smoke test:
-
-```bash
-PYTHONPATH=. python3 tests/ingestion_tests/test_ingestion_replay_pipeline.py
-```
-
-Live/hotbuffer tester:
-
-```bash
-PYTHONPATH=. python3 -m unittest tests.ingestion_tests.test_ingestion_live_camera -v
-```
-
-Simulator-unit tester:
-
-```bash
-PYTHONPATH=. python3 -m unittest tests.ingestion_tests.test_ingestion_simulated_camera -v
-```
-
-RTSP hot buffer integrationstest (manuellt):
-
-```bash
-RUN_RTSP_HOT_BUFFER_TEST=1 \
-RTSP_URL='rtsp://student:student@192.168.0.90/axis-media/media.amp' \
-PYTHONPATH=. python3 -m unittest tests.ingestion_tests.test_ingestion_rtsp_hot_buffer_search_frame -v
-```
-
-Simulerad livekamera E2E-test (manuellt):
-
-```bash
-RUN_SIMULATED_LIVE_E2E_TEST=1 \
-SIM_VIDEO='path/to/video.mp4' \
-SIM_EVENTS='path/to/events.jsonl' \
-SIM_CAMERA_ID='1' \
-SIM_RTSP_PUBLISH_URL='rtsp://127.0.0.1:8554/1' \
-SIM_RTSP_READ_URL='rtsp://127.0.0.1:8554/1' \
-SIM_BROKER_HOST='127.0.0.1' \
-SIM_BROKER_PORT='1883' \
-PYTHONPATH=. python3 -m unittest tests.ingestion_tests.test_ingestion_simulated_live_camera_e2e -v
-```
-
-Praktisk E2E-körning i fyra terminaler:
-
-1. RTSP-server:
-
-```bash
-cd GR8/backend
-mediamtx mediamtx.yml
-```
-
-2. MQTT-broker:
-
-```bash
-mosquitto -p 1883
-```
-
-3. Simulerad kamera:
-
-```bash
-cd GR8/backend
-source .venv/bin/activate
-PYTHONPATH=. python3 -m ingestion.simulator.simulated_camera \
-  --video recordings/1/D2026-03-31-T14-04-45.mp4 \
-  --events replay_out/live_events.jsonl \
-  --camera-id 1 \
-  --broker-host 127.0.0.1 \
-  --broker-port 1883 \
-  --rtsp-publish-url rtsp://127.0.0.1:8554/1 \
-  --auto-filter-events \
-  --loop
-```
-
-4. Ingestion mot simulatorn:
-
-```bash
-cd GR8/backend
-source .venv/bin/activate
-PYTHONPATH=. python3 - <<'PY'
-import os
-import time
-import imageio_ffmpeg
-
-from ingestion.camera import Camera
-from analysis.sync_prisma import LLMClientSync
-
-endpoint = "https://api.ai.auth.axis.cloud/v1/chat/completions"
-api_key = os.environ.get("FACADE_API_KEY")
-model = "prisma_gemini_pro"
-
-llm = LLMClientSync(endpoint, api_key, model)
-camera = Camera(
-    camera_id="1",
-    rtsp_url="rtsp://127.0.0.1:8554/1",
-    ffmpeg=imageio_ffmpeg.get_ffmpeg_exe(),
-    broker_host="127.0.0.1",
-    broker_port=1883,
-    analysis_client=llm,
-    segment_seconds=5,
-)
-
-try:
-    time.sleep(15)
-    print("Hot buffer stats:", camera.hot_buffer_stats())
-    print("MQTT buffer stats:", camera.mqtt_buffer_stats())
-finally:
-    camera.stop_recording()
-PY
-```
-
-Förväntat resultat:
-- simulatorn skriver `Simulation completed: ...`
-- MediaMTX visar att publisher/readers ansluter till path `1`
-- ingestion-processen visar att hot buffer och MQTT-buffer innehåller data
-- om analysklienten är korrekt konfigurerad skrivs `keywords` ut när MQTT-event matchas mot en frame
-
-## Nuvarande testtäckning
-
-`tests/ingestion_tests/test_ingestion_live_camera.py` täcker:
-- `on_message()` med giltig JSON
-- `on_message()` felhantering (trasig JSON, tom payload)
-- integration: live-liknande payload -> frame hämtas + analys sparas
-- `FrameRingBuffer` gränser för `max_frames` och `max_bytes`
-
-`tests/ingestion_tests/test_ingestion_mqtt_context_matching.py` täcker:
-- MQTT hot buffer lookup med toleransfönster
-- Kontextmatchning (`get_context_at`) mellan RTSP-frame och MQTT-event
-
-`tests/ingestion_tests/test_ingestion_replay_pipeline.py` verifierar replayflödet end-to-end.
-
-## Vanliga fel och felsökning
-
-- `ModuleNotFoundError: ingestion`
-  - Kör från `GR8/backend` och sätt `PYTHONPATH=.`
-- `ModuleNotFoundError: cv2` eller `paho`
-  - Installera beroenden från `backend/requirements.txt` i aktiv miljö
-- MQTT-meddelanden parseas inte
-  - Kontrollera JSON-format och topic `camera/<camera_id>`
-- RTSP reconnect-loop
-  - Kontrollera RTSP URL, användare/lösenord och nätverk
+- MQTT-subscription på `camera/<camera_id>`
+- hot buffer för videoframes
+- segmentinspelning
+- rå eventlagring till JSONL
+- snapshot/full-frame/sequence-urval
+- LLM-anrop
+- sparning till `analysis.sqlite`
+
+Det är här den faktiska live-analyslogiken ligger.
+
+### `gstreamer_recorder.py`
+Ansvarar för inspelning av RTSP-video till segment och för indexeringen av segmentens tider.
+
+Den skriver:
+- videosegment under `backend/recordings/<camera_id>/`
+- indexrader till `backend/indexes/index-<camera_id>.csv`
+
+Den är viktig eftersom frontend senare använder indexet för att koppla timestamps till video.
+
+### `gstreamer_hot_buffer.py` och `opencv_hot_buffer.py`
+Detta är två backend-val för hot buffer.
+
+De används för att hålla ett kort glidande minne av videoframes som kan matchas mot MQTT-event.
+
+- `gstreamer_hot_buffer.py`
+  - bättre när målet är kameratidsbaserad synk
+  - känsligare för RTSP/GStreamer-problem
+
+- `opencv_hot_buffer.py`
+  - enklare och robustare
+  - använder lokal maskintid i stället för riktig kameratid
+
+### `analysis/frame_selection.py`
+Här ligger det settings-styrda frame-urvalet.
+
+Det används idag av `camera.py` för att bygga två sekvenser:
+
+- uniform sequence
+- movement/varied sequence
+
+Det är alltså här analysinställningarna för samplingsbeteende faktiskt får effekt.
+
+### `simulator/`
+Här ligger replayflödet för simulerad livekamera.
+
+Viktigaste filerna:
+- `simulated_camera.py`
+- `rtsp_streamer.py`
+- `mqtt_replayer.py`
+- `scenario_loader.py`
+- `timestamp_rewriter.py`
+
+De här filerna används när ni vill spela upp gammal video + gamla events som om de kom live.
+
+## Övergripande liveflöde
+
+När ni kör live via `run_ingestion.py` ser flödet ut så här:
+
+1. `Camera` startar recorder
+2. `Camera` startar hot buffer
+3. `Camera` kopplar upp MQTT
+4. MQTT-event tas emot i `camera.py:on_message()`
+5. Rå event sparas som JSONL för replay
+6. Snapshot hämtas från `payload["image"]["data"]`
+7. Full-frame hämtas från hot buffer om matchning lyckas
+8. Uniform och varied sequence väljs
+9. Bilder skickas till analysklienten
+10. Resultat sparas i databasen via `save_description_bundle(...)`
+
+## Settings-styrt frame selection
+
+Frame selection styrs idag via `backend/database/settings.json` och API:t i `backend/database/database.py`.
+
+Själva logiken ligger i:
+- `backend/ingestion/analysis/frame_selection.py`
+
+Det finns två huvudspår:
+
+### Uniform
+`frame_selection_uniform(...)`
+
+Använder inställningar som:
+- `uniform_samplerate`
+- `uniform_samplerate_value`
+
+Den väljer frames jämnt över eventets tidsintervall.
+
+### Movement / Varied
+`frame_selection_movement(...)`
+
+Använder inställningar som:
+- `movement_tracker_type`
+- `movement_tracker_type_threshhold`
+- `movement_samplerate`
+- `movement_samplerate_value`
+
+Den försöker välja frames baserat på visuell förändring i stället för bara jämn sampling.
+
+## Simulerat liveflöde
+
+När ni kör simulatorn ser flödet ut så här:
+
+1. `run_simulated_camera.py` startar MediaMTX
+2. `run_simulated_camera.py` startar Mosquitto
+3. video väljs antingen direkt eller byggs från ett segmentintervall
+4. eventfil filtreras till rätt tidsfönster om `--segment-range` används
+5. `simulated_camera.py` startar RTSP-publicering via ffmpeg
+6. `mqtt_replayer.py` publicerar MQTT-event i realtid
+7. vanlig ingestion kan sedan ansluta mot:
+   - RTSP: `rtsp://127.0.0.1:8554/1`
+   - MQTT: `127.0.0.1:1883`
+
+Det här gör att simulatorn beter sig nära en riktig livekamera, men på återspelbar data.
+
+## Filer som fortfarande finns men inte är huvudvägen
+
+### `ingestion_service.py`
+Det här är en äldre eller mer generisk pipeline för:
+- `RawEvent`
+- validering
+- normalisering
+- callback
+
+Den är fortfarande användbar som byggsten och för replay/struktur, men den är inte den centrala live-vägen idag.
+
+### `validation/validator.py` och `normalization/mapper.py`
+De används tillsammans med `ingestion_service.py`.
+
+Bra att behålla, men de beskriver inte hela dagens liveflöde.
+
+## Rekommenderad mental modell
+
+Om du bara ska förstå ingestion snabbt:
+
+- `run_ingestion.py` startar liveflödet
+- `camera.py` är kärnan
+- `gstreamer_recorder.py` ansvarar för videosegment och index
+- `gstreamer_hot_buffer.py` / `opencv_hot_buffer.py` levererar frames för analys
+- `analysis/frame_selection.py` styr sequence-urval enligt settings
+- `run_simulated_camera.py` replayar gamla sessions som ny “livekamera”
+
+Det är den struktur som bäst motsvarar hur projektet faktiskt körs idag.

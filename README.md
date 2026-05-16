@@ -26,12 +26,12 @@ GR8 is a full-stack video analysis search tool. The backend receives camera even
 |   |   `-- settings_editor.py  
 |   |-- ingestion/
 |   |   |-- camera.py            # Connects RTSP video and MQTT events to the ingestion pipeline
-|   |   |-- analysis/
-|   |   |-- buffers/
-|   |   |-- normalization/
-|   |   |-- source/
-|   |   |-- storage/
-|   |   `-- validation/
+|   |   |-- analysis/            # Contains code that picks uniform and movement-based image sequences before sending them to LLM
+|   |   |-- buffers/             # Ring buffers for recent RTSP frames and MQTT events
+|   |   |-- normalization/       # Maps raw Axis payloads into internal event format. (NOT USED IN THE MAIN LIVE INGESTION PATH)
+|   |   |-- source/              # Provides readers and raw event models for loading saved JSON/JSONL event streams
+|   |   |-- storage/             # Storage helpers for raw ingestion data, to save live MQTT events to JSONL so they can be replayed.
+|   |   `-- validation/          # Validation of incoming event payloads. (NOT USED IN THE MAIN LIVE INGESTION PATH)
 |   |-- analysis/                # Sets up LLM analysis clients and image utilities
 |   |-- tests/
 |   `-- requirements.txt         # Backend Python dependencies
@@ -184,4 +184,30 @@ Main components:
 
 ## Tests
 
-#TODO: Explain which tests we have, how to run them manually and explain that they're a part of the CI pipeline. 
+The project includes automated tests for the backend, database layer, live ingestion logic, and simulated camera/replay flow.
+
+Most tests are written with `pytest` and are located under:
+
+- `backend/tests/`
+- `backend/database/database_unit_tests.py`
+
+### Running tests
+
+From `GR8/backend`:
+
+```bash
+source venv/bin/activate
+python -m pytest tests database/database_unit_tests.py -q
+```
+
+For more test output:
+
+```bash
+python -m pytest tests database/database_unit_tests.py -v
+```
+
+
+The test suite is also run automatically in GitHub Actions through
+- `.github/workflows/tests.yml`
+
+This helps catch regressions before changes are merged.

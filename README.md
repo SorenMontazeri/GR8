@@ -21,9 +21,9 @@ GR8 is a full-stack video analysis search tool. The backend receives camera even
 |-- init.py                      # Sets up backend and frontend dependencies
 |-- backend/
 |   |-- database/
-|   |   |-- database.py
-|   |   |-- settings.json
-|   |   `-- settings_editor.py  
+|   |   |-- database.py          # Contains the implementation for the database as well as the communication between frontend and backend
+|   |   |-- settings.json        # Contains the current settings the analysis will run, as well as filter the search result to the current settings in frontend
+|   |   `-- settings_editor.py   # Helpfunctions to handle settings.json
 |   |-- ingestion/
 |   |   |-- camera.py            # Connects RTSP video and MQTT events to the ingestion pipeline
 |   |   |-- analysis/            # Contains code that picks uniform and movement-based image sequences before sending them to LLM
@@ -156,7 +156,8 @@ Main endpoints from `backend/database/database.py`:
 | `POST` | `/api/feedback` | Store a 0-5 rating for a result type |
 | `POST` / `PATCH` | `/api/admin/reset` | Clear the SQLite database and recordings for camera `1` |
 
-#TODO: A short explaination on how the embedding search works
+The embedded search will return the description with the highest point value. If a snapshot analysis has a good point, it will return the ID of that snapshot. 
+Frontend will then get all the different analysis responds that has that ID (the same event). 
 
 
 ## Database Model

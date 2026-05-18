@@ -44,10 +44,10 @@ GR8 is a full-stack video analysis search tool. The backend receives camera even
 |   |-- src/
 |   |   |-- components/
 |   |   |-- Features/
-|   |   |-- Analys.jsx
-|   |   |-- App.jsx
-|   |   |-- Home.jsx
-|   |   `-- main.jsx
+|   |   |-- Analys.jsx          # Compilation of number of likes
+|   |   |-- App.jsx             # Navigation between homepage and analys page 
+|   |   |-- Home.jsx            # Homepage at website
+|   |   `-- main.jsx            # To start the React application 
 |   |-- package.json
 |   `-- vite.config.js
 `-- .github/workflows/tests.yml
